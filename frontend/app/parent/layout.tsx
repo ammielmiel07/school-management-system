@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useEffect } from "react";
 
 export default function ParentLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname(); // Retrieves the current URL path
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -35,7 +36,26 @@ export default function ParentLayout({ children }: { children: React.ReactNode }
 
         <nav className="flex-1 px-4 py-6 space-y-2">
           <div className="text-xs font-semibold text-red-300 uppercase tracking-wider mb-2 mt-4">Academics</div>
-          <Link href="/parent/dashboard" className="block px-4 py-2 rounded bg-[#5D1919] text-white font-bold">
+          
+          <Link 
+            href="/parent/dashboard" 
+            className={`block px-4 py-2 rounded transition ${
+              pathname === '/parent/dashboard' 
+                ? 'bg-[#5D1919] text-white font-bold' 
+                : 'text-red-100 hover:bg-[#5D1919] hover:text-white'
+            }`}
+          >
+            Dashboard
+          </Link>
+          
+          <Link 
+            href="/parent/child-grades" 
+            className={`block px-4 py-2 rounded transition ${
+              pathname === '/parent/child-grades' 
+                ? 'bg-[#5D1919] text-white font-bold' 
+                : 'text-red-100 hover:bg-[#5D1919] hover:text-white'
+            }`}
+          >
             Child Grades
           </Link>
         </nav>

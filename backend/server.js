@@ -10,6 +10,30 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+// Expose the 'uploads' directory publicly so the frontend can display the images
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Configure Multer Storage for Carousel Images
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        const dir = './uploads/carousel';
+        // Create the directory if it doesn't exist
+        if (!fs.existsSync(dir)){
+            fs.mkdirSync(dir, { recursive: true });
+        }
+        cb(null, dir);
+    },
+    filename: function (req, file, cb) {
+        // Give the file a unique name using the current timestamp
+        cb(null, 'carousel-' + Date.now() + path.extname(file.originalname));
+    }
+});
+const upload = multer({ storage: storage });
+
 const ROLES = {
     ADMIN: 1,
     FACULTY: 2,
@@ -119,19 +143,35 @@ app.post('/api/login', async (req, res) => {
         
         const user = userResult.rows[0];
 
-        // 2. Compare the typed password with the scrambled one in the database
+       // 2. Compare the typed password with the scrambled one in the database
         const isMatch = await bcrypt.compare(password, user.password_hash);
         
         if (!isMatch) {
             return res.status(401).json({ error: "Invalid username or password." });
         }
 
-        // 3. Create the JWT (The digital VIP pass)
-        // We include the user's ID and Role ID inside the token so we know their access level
+        // NEW: Check if the user needs to reset their password
+        if (user.requires_password_change) {
+            // Give them a temporary 15-minute token JUST to change their password
+            const resetToken = jwt.sign(
+                { id: user.id, role_id: user.role_id, pending_reset: true }, 
+                process.env.JWT_SECRET, 
+                { expiresIn: '15m' }
+            );
+
+            return res.json({ 
+                success: true, 
+                requires_reset: true, 
+                token: resetToken,
+                message: "Password reset required." 
+            });
+        }
+
+        // 3. Create the standard JWT for fully activated users
         const token = jwt.sign(
             { id: user.id, role_id: user.role_id }, 
             process.env.JWT_SECRET, 
-            { expiresIn: '8h' } // Token expires in 8 hours (typical school day)
+            { expiresIn: '8h' } 
         );
 
         res.json({ 
@@ -144,6 +184,33 @@ app.post('/api/login', async (req, res) => {
     } catch (err) {
         console.error(err.message);
         res.status(500).json({ error: "Server error during login." });
+    }
+});
+
+// POST: Set up new password on first login
+app.post('/api/auth/setup-password', verifyToken, async (req, res) => {
+    try {
+        const { newPassword } = req.body;
+        const userId = req.user.id; // Comes from the temporary token
+
+        if (!newPassword || newPassword.length < 6) {
+            return res.status(400).json({ error: "Password must be at least 6 characters long." });
+        }
+
+        // Hash the new custom password
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+        // Update the database and remove the reset flag
+        await pool.query(
+            'UPDATE users SET password_hash = $1, requires_password_change = FALSE WHERE id = $2',
+            [hashedPassword, userId]
+        );
+
+        res.json({ success: true, message: "Password updated successfully! You can now log in." });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Failed to update password." });
     }
 });
 
@@ -175,14 +242,143 @@ app.put('/api/settings', verifyToken, requireRole(ROLES.ADMIN), async (req, res)
 
 
 
-// NEW: A Protected Route (Only logged-in users can see this)
-app.get('/api/admin/dashboard', verifyToken, requireRole(ROLES.ADMIN), (req, res) => {
-    // Because verifyToken ran first, we now know EXACTLY who is making the request
-    res.json({ 
-        success: true, 
-        message: "Welcome to the secret Admin Dashboard!", 
-        user_data: req.user 
-    });
+// GET: Admin Dashboard Analytics
+app.get('/api/admin/dashboard', verifyToken, requireRole(ROLES.ADMIN), async (req, res) => {
+    try {
+        const settings = await getSystemSettings();
+        const activeYear = settings?.current_school_year;
+
+        // Run multiple count queries simultaneously for speed
+        const [totalLearners, totalFaculty, enrolledThisYear, activeSections] = await Promise.all([
+            pool.query('SELECT COUNT(*) FROM learner_profiles'),
+            pool.query('SELECT COUNT(*) FROM faculty_profiles'),
+            pool.query('SELECT COUNT(*) FROM enrollments WHERE school_year = $1', [activeYear]),
+            pool.query('SELECT COUNT(DISTINCT section_id) FROM enrollments WHERE school_year = $1', [activeYear])
+        ]);
+
+        res.json({ 
+            success: true, 
+            active_school_year: activeYear,
+            active_trisemester: settings?.active_trisemester,
+            stats: {
+                total_learners: parseInt(totalLearners.rows[0].count),
+                total_faculty: parseInt(totalFaculty.rows[0].count),
+                enrolled_this_year: parseInt(enrolledThisYear.rows[0].count),
+                active_sections: parseInt(activeSections.rows[0].count)
+            }
+        });
+
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Failed to fetch dashboard analytics." });
+    }
+});
+
+// ==========================================
+// ADMIN: CAROUSEL MANAGEMENT
+// ==========================================
+
+// GET: Fetch all carousel images
+app.get('/api/admin/carousel', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM carousel_images ORDER BY uploaded_at DESC');
+        res.json({ success: true, images: result.rows });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Failed to fetch carousel images." });
+    }
+});
+
+// POST: Upload a new carousel image
+app.post('/api/admin/carousel', verifyToken, requireRole(ROLES.ADMIN), upload.single('image'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: "No image file provided." });
+        }
+
+        // The public URL path to store in the database
+        const imageUrl = `/uploads/carousel/${req.file.filename}`;
+
+        const result = await pool.query(
+            'INSERT INTO carousel_images (image_url) VALUES ($1) RETURNING *',
+            [imageUrl]
+        );
+
+        res.json({ success: true, message: "Image uploaded successfully!", image: result.rows[0] });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Failed to upload image." });
+    }
+});
+
+// DELETE: Remove a carousel image
+app.delete('/api/admin/carousel/:id', verifyToken, requireRole(ROLES.ADMIN), async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // 1. Get the image URL so we can delete the actual file
+        const imageCheck = await pool.query('SELECT image_url FROM carousel_images WHERE id = $1', [id]);
+        if (imageCheck.rows.length === 0) {
+            return res.status(404).json({ error: "Image not found." });
+        }
+
+        const filePath = path.join(__dirname, imageCheck.rows[0].image_url);
+
+        // 2. Delete the record from the database
+        await pool.query('DELETE FROM carousel_images WHERE id = $1', [id]);
+
+        // 3. Delete the actual file from the server
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
+
+        res.json({ success: true, message: "Image deleted successfully." });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Failed to delete image." });
+    }
+});
+
+// ==========================================
+// ADMIN: CALENDAR OF ACTIVITIES
+// ==========================================
+
+// GET: Fetch all events (ordered by closest date first)
+app.get('/api/admin/calendar', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM school_events ORDER BY event_date ASC');
+        res.json({ success: true, events: result.rows });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Failed to fetch events." });
+    }
+});
+
+// POST: Add a new event
+app.post('/api/admin/calendar', verifyToken, requireRole(ROLES.ADMIN), async (req, res) => {
+    try {
+        const { title, event_date, description } = req.body;
+        const result = await pool.query(
+            'INSERT INTO school_events (title, event_date, description) VALUES ($1, $2, $3) RETURNING *',
+            [title, event_date, description]
+        );
+        res.json({ success: true, message: "Event added successfully!", event: result.rows[0] });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Failed to add event." });
+    }
+});
+
+// DELETE: Remove an event
+app.delete('/api/admin/calendar/:id', verifyToken, requireRole(ROLES.ADMIN), async (req, res) => {
+    try {
+        const { id } = req.params;
+        await pool.query('DELETE FROM school_events WHERE id = $1', [id]);
+        res.json({ success: true, message: "Event deleted successfully." });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Failed to delete event." });
+    }
 });
 
 // Create Learner AND auto-generate Parent (Relational Architecture)
@@ -724,6 +920,67 @@ app.delete('/api/admin/accounts/:id', verifyToken, requireRole(ROLES.ADMIN), asy
         await pool.query('ROLLBACK');
         console.error(err);
         res.status(500).json({ error: "Failed to delete account. They may have dependent records (like grades)." });
+    }
+});
+
+// PUT: Update an existing account
+app.put('/api/admin/accounts/:id', verifyToken, requireRole(ROLES.ADMIN), async (req, res) => {
+    const { id } = req.params; // This is the user_id
+    const data = req.body;
+
+    try {
+        await pool.query('BEGIN'); // Start a transaction
+
+        // Check if updating a learner (payload contains 'lrn')
+        if (data.lrn !== undefined) {
+            // 1. Update the main login username
+            await pool.query('UPDATE users SET username = $1 WHERE id = $2', [data.lrn, id]);
+            
+            // 2. Update the profile data
+            await pool.query(
+                `UPDATE learner_profiles 
+                 SET lrn = $1, first_name = $2, last_name = $3, email = $4 
+                 WHERE user_id = $5`,
+                [data.lrn, data.firstName, data.lastName, data.email, id]
+            );
+
+            // 3. Update the linked Parent username if applicable
+            const newParentUsername = `P-${data.lrn}`;
+            await pool.query(
+                `UPDATE users 
+                 SET username = $1 
+                 WHERE id = (SELECT user_id FROM parent_profiles WHERE linked_lrn = $2 LIMIT 1)`,
+                [newParentUsername, data.lrn]
+            );
+            
+            // 4. Update the Parent profile link
+            await pool.query('UPDATE parent_profiles SET linked_lrn = $1 WHERE linked_lrn = $2', [data.lrn, data.lrn]);
+        } 
+        // Check if updating a faculty (payload contains 'employeeNo')
+        else if (data.employeeNo !== undefined) {
+            // 1. Update the main login username
+            await pool.query('UPDATE users SET username = $1 WHERE id = $2', [data.employeeNo, id]);
+            
+            // 2. Update the profile data
+            await pool.query(
+                `UPDATE faculty_profiles 
+                 SET employee_no = $1, first_name = $2, last_name = $3, email = $4 
+                 WHERE user_id = $5`,
+                [data.employeeNo, data.firstName, data.lastName, data.email, id]
+            );
+        }
+
+        await pool.query('COMMIT'); // Save changes
+        res.json({ success: true, message: "Account updated successfully!" });
+    } catch (error) {
+        await pool.query('ROLLBACK'); // Cancel changes on error
+        console.error("Backend Error updating account:", error);
+        
+        // Handle duplicate LRN or Employee No errors
+        if (error.code === '23505') {
+            return res.status(400).json({ error: "That LRN or Employee Number is already in use by another account." });
+        }
+        res.status(500).json({ error: "Failed to update account in the database." });
     }
 });
 

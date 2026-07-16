@@ -15,41 +15,33 @@ export default function LoginPage() {
 
     try {
       // 1. Send the data to your Node.js backend
-      const response = await fetch("http://localhost:5000/api/login", {
+      const res = await fetch("http://localhost:5000/api/login", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
 
-      // 2. Parse the backend's response
-      const data = await response.json();
+      const data = await res.json();
 
-      if (response.ok) {
-        // 3. Success! Save the VIP pass (JWT token) AND user details into local storage
-        localStorage.setItem("token", data.token);
-        
-        // Save the role_id and username so the layouts know who is logged in!
-        localStorage.setItem("role_id", data.user.role_id.toString());
-        localStorage.setItem("username", data.user.username);
-        
-        // Smart Routing based on Role ID
-        const userRole = data.user.role_id; 
-
-        if (userRole === 1) {
-          router.push("/admin/dashboard"); // Send Super Admins to the Maroon Portal
-        } else if (userRole === 2) {
-          router.push("/faculty/dashboard"); // Send Faculty to the Blue Portal
-        } else if (userRole === 3) {
-          router.push("/learner/dashboard");
-        } else if (userRole === 4) {
-          router.push("/parent/dashboard");
-        } else {
-          router.push("/login"); // Fallback just in case
+      if (res.ok) {
+        // NEW: Intercept the login if a reset is required
+        if (data.requires_reset) {
+          localStorage.setItem("reset_token", data.token); // Store temporary token
+          router.push("/setup-password"); // Redirect to the new password page
+          return;
         }
+
+        // STANDARD LOGIN FLOW (If no reset is required)
+        localStorage.setItem("token", data.token);
+        localStorage.setItem("role_id", data.user.role_id);
+        
+        // Redirect based on role...
+        if (data.user.role_id === 1) router.push("/admin/dashboard");
+        else if (data.user.role_id === 2) router.push("/faculty/dashboard");
+        else if (data.user.role_id === 3) router.push("/learner/dashboard");
+        else if (data.user.role_id === 4) router.push("/parent/dashboard");
+        
       } else {
-        // If the backend sends back a 401 Unauthorized, show the error message
         setError(data.error || "Login failed");
       }
     } catch (err) {

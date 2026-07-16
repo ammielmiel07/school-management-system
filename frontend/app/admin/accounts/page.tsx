@@ -115,8 +115,63 @@ export default function AdminAccounts() {
     }
   };
 
+  const openEditModal = (acc: any) => {
+    setUserType(acc.role);
+    setEditingUserId(acc.user_id);
+    
+    if (acc.role === "learner") {
+      // Pre-fill learner form (adjust mapping based on your exact database column names)
+      setLearnerForm({
+        ...learnerForm,
+        firstName: acc.first_name || "",
+        lastName: acc.last_name || "",
+        email: acc.email || "",
+        lrn: acc.identifier || "", // Assuming identifier holds LRN
+        // Add other fields you want pre-filled here...
+      });
+    } else if (acc.role === "faculty") {
+      setFacultyForm({
+        ...facultyForm,
+        firstName: acc.first_name || "",
+        lastName: acc.last_name || "",
+        email: acc.email || "",
+        employeeNo: acc.identifier || "", // Assuming identifier holds Emp No
+      });
+    }
+    setIsEditModalOpen(true);
+  };
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const payload = userType === "learner" ? learnerForm : facultyForm;
+
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`http://localhost:5000/api/admin/accounts/${editingUserId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+      
+      const data = await res.json();
+      if (res.ok) {
+        alert("Account updated successfully!");
+        setIsEditModalOpen(false);
+        setEditingUserId(null);
+        fetchAccounts(); // Refresh the table
+      } else {
+        alert(data.error || "Failed to update account.");
+      }
+    } catch (err) {
+      console.error("Full error detail:", err);
+      alert("Check the browser console! Error: " + err);
+    }
+  };
+
   const closeModals = () => {
     setIsAddModalOpen(false);
+    setIsEditModalOpen(false); 
+    setEditingUserId(null);   
     setGeneratedCreds(null);
     setLearnerForm({
       lrn: "", birthdate: "", gender: "", firstName: "", middleName: "", lastName: "", email: "",
@@ -128,6 +183,24 @@ export default function AdminAccounts() {
     });
     setFacultyForm({ employeeNo: "", firstName: "", middleName: "", lastName: "", startSchoolYear: "2024-2025", email: "", contactNumber: "" });
   };
+
+  // Generate dynamic school years based on the current year
+  const getDynamicSchoolYears = () => {
+    const currentYear = new Date().getFullYear();
+    const years = [];
+    
+    // Generates years from 15 years ago to 5 years in the future
+    for (let i = currentYear - 15; i <= currentYear + 5; i++) {
+      years.push(`${i}-${i + 1}`);
+    }
+    return years;
+  };
+  
+  const schoolYearOptions = getDynamicSchoolYears();
+
+  // --- EDIT STATE ---
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingUserId, setEditingUserId] = useState<number | null>(null);
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
@@ -179,12 +252,20 @@ export default function AdminAccounts() {
                     </td>
                     <td className="p-4 text-center text-gray-600">{acc.identifier}</td>
                     <td className="p-4 text-center">
-                      <button 
-                        onClick={() => handleDelete(acc.user_id)}
-                        className="text-red-600 hover:text-red-800 font-semibold px-2 py-1 border border-red-600 rounded transition"
-                      >
-                        Delete
-                      </button>
+                      <div className="flex items-center justify-center gap-2">
+                        <button 
+                          onClick={() => openEditModal(acc)}
+                          className="text-blue-600 hover:text-blue-800 font-semibold px-3 py-1 border border-blue-600 rounded transition"
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(acc.user_id)}
+                          className="text-red-600 hover:text-red-800 font-semibold px-3 py-1 border border-red-600 rounded transition"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -231,187 +312,355 @@ export default function AdminAccounts() {
         </div>
       )}
 
-      {/* ADD USER MODAL */}
+      {/* FIXED UI ADD USER MODAL */}
       {isAddModalOpen && !generatedCreds && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4 sticky top-0 bg-white pb-2 border-b">
+          
+          {/* Modal Container: Flex Col, Max Height, Hidden Overflow */}
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl flex flex-col max-h-[90vh] overflow-hidden">
+            
+            {/* 1. FIXED HEADER */}
+            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-white shrink-0 z-10 shadow-sm">
               <h2 className="text-2xl font-bold text-gray-800">Add New User</h2>
               <button onClick={closeModals} className="text-gray-500 hover:text-gray-800 font-bold text-2xl">&times;</button>
             </div>
 
-            <div className="mb-6 flex gap-4">
-              <button onClick={() => setUserType("learner")} className={`px-6 py-2 rounded font-semibold transition ${userType === "learner" ? "bg-red-900 text-white" : "bg-gray-200 text-gray-700 hover:bg-gray-300"}`}>Learner (SF1)</button>
-              <button onClick={() => setUserType("faculty")} className={`px-6 py-2 rounded font-semibold transition ${userType === "faculty" ? "bg-red-900 text-white" : "bg-gray-200 text-gray-700 hover:bg-gray-300"}`}>Faculty</button>
+            {/* 2. SCROLLABLE BODY */}
+            <div className="p-6 overflow-y-auto flex-1 bg-gray-50/50">
+              <div className="mb-6 flex gap-4">
+                <button onClick={() => setUserType("learner")} className={`px-6 py-2 rounded font-semibold transition ${userType === "learner" ? "bg-red-900 text-white shadow" : "bg-gray-200 text-gray-700 hover:bg-gray-300"}`}>Learner (SF1)</button>
+                <button onClick={() => setUserType("faculty")} className={`px-6 py-2 rounded font-semibold transition ${userType === "faculty" ? "bg-red-900 text-white shadow" : "bg-gray-200 text-gray-700 hover:bg-gray-300"}`}>Faculty</button>
+              </div>
+
+              {/* LEARNER FORM (ID assigned so button outside can trigger it) */}
+              {userType === "learner" && (
+                <form id="learner-form" onSubmit={handleCreateLearner} className="space-y-4">
+                  <details className="group border border-gray-300 rounded shadow-sm" open>
+                    <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                      1. Basic Identification <span className="text-gray-500">▼</span>
+                    </summary>
+                    <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white">
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">LRN (12 Digits) *</label><input type="text" maxLength={12} required value={learnerForm.lrn} onChange={e => setLearnerForm({...learnerForm, lrn: e.target.value.replace(/\D/g,'')})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Birthdate *</label><input type="date" required value={learnerForm.birthdate} onChange={e => setLearnerForm({...learnerForm, birthdate: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Gender *</label>
+                        <select required value={learnerForm.gender} onChange={e => setLearnerForm({...learnerForm, gender: e.target.value})} className="w-full border p-2 rounded bg-white focus:outline-none focus:border-red-900">
+                          <option value="">Select...</option><option value="Male">Male</option><option value="Female">Female</option>
+                        </select>
+                      </div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">First Name *</label><input type="text" required value={learnerForm.firstName} onChange={e => setLearnerForm({...learnerForm, firstName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Middle Name</label><input type="text" value={learnerForm.middleName} onChange={e => setLearnerForm({...learnerForm, middleName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Last Name *</label><input type="text" required value={learnerForm.lastName} onChange={e => setLearnerForm({...learnerForm, lastName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                      <div className="md:col-span-3"><label className="block text-xs font-bold text-gray-700 mb-1">Email Address (For Temp Password) *</label><input type="email" required value={learnerForm.email} onChange={e => setLearnerForm({...learnerForm, email: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    </div>
+                  </details>
+
+                  <details className="group border border-gray-300 rounded shadow-sm">
+                    <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                      2. Enrollment & School Year <span className="text-gray-500">▼</span>
+                    </summary>
+                    <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">School Year *</label>
+                        <select value={learnerForm.schoolYear} onChange={e => setLearnerForm({...learnerForm, schoolYear: e.target.value})} className="w-full border p-2 rounded bg-white focus:outline-none focus:border-red-900">
+                          <option value="" disabled>Select School Year</option>
+                          {schoolYearOptions.map((sy) => (<option key={sy} value={sy}>{sy}</option>))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Grade Level *</label>
+                        <select value={learnerForm.gradeLevel} onChange={e => setLearnerForm({...learnerForm, gradeLevel: e.target.value})} className="w-full border p-2 rounded bg-white focus:outline-none focus:border-red-900">
+                          <option value="7">Grade 7</option><option value="8">Grade 8</option><option value="9">Grade 9</option><option value="10">Grade 10</option>
+                        </select>
+                      </div>
+                      <div className="flex items-center mt-6">
+                        <label className="flex items-center space-x-2 cursor-pointer font-bold text-sm text-gray-800">
+                          <input type="checkbox" checked={learnerForm.isStarEligible} onChange={e => setLearnerForm({...learnerForm, isStarEligible: e.target.checked})} className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500" />
+                          <span>⭐ Star/Honors Eligible</span>
+                        </label>
+                      </div>
+                    </div>
+                  </details>
+
+                  <details className="group border border-gray-300 rounded shadow-sm">
+                    <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                      3. Demographics <span className="text-gray-500">▼</span>
+                    </summary>
+                    <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white">
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Mother Tongue</label><input type="text" value={learnerForm.motherTongue} onChange={e => setLearnerForm({...learnerForm, motherTongue: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">IP (Ethnic Group)</label><input type="text" value={learnerForm.ip} onChange={e => setLearnerForm({...learnerForm, ip: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Religion</label><input type="text" value={learnerForm.religion} onChange={e => setLearnerForm({...learnerForm, religion: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    </div>
+                  </details>
+
+                  <details className="group border border-gray-300 rounded shadow-sm">
+                    <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                      4. Address <span className="text-gray-500">▼</span>
+                    </summary>
+                    <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4 bg-white">
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">House # / Street / Purok</label><input type="text" value={learnerForm.houseStreet} onChange={e => setLearnerForm({...learnerForm, houseStreet: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Barangay</label><input type="text" value={learnerForm.barangay} onChange={e => setLearnerForm({...learnerForm, barangay: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Municipality / City</label><input type="text" value={learnerForm.city} onChange={e => setLearnerForm({...learnerForm, city: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Province</label><input type="text" value={learnerForm.province} onChange={e => setLearnerForm({...learnerForm, province: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    </div>
+                  </details>
+
+                  <details className="group border border-gray-300 rounded shadow-sm">
+                    <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                      5. Parents <span className="text-gray-500">▼</span>
+                    </summary>
+                    <div className="p-4 bg-white space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div><label className="block text-xs font-bold text-blue-800 mb-1">Father's First Name</label><input type="text" value={learnerForm.fatherFirst} onChange={e => setLearnerForm({...learnerForm, fatherFirst: e.target.value})} className="w-full border p-2 rounded bg-blue-50 focus:outline-none focus:border-red-900" /></div>
+                        <div><label className="block text-xs font-bold text-blue-800 mb-1">Father's Middle Name</label><input type="text" value={learnerForm.fatherMiddle} onChange={e => setLearnerForm({...learnerForm, fatherMiddle: e.target.value})} className="w-full border p-2 rounded bg-blue-50 focus:outline-none focus:border-red-900" /></div>
+                        <div><label className="block text-xs font-bold text-blue-800 mb-1">Father's Last Name</label><input type="text" value={learnerForm.fatherLast} onChange={e => setLearnerForm({...learnerForm, fatherLast: e.target.value})} className="w-full border p-2 rounded bg-blue-50 focus:outline-none focus:border-red-900" /></div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div><label className="block text-xs font-bold text-pink-800 mb-1">Mother's First Name</label><input type="text" value={learnerForm.motherFirst} onChange={e => setLearnerForm({...learnerForm, motherFirst: e.target.value})} className="w-full border p-2 rounded bg-pink-50 focus:outline-none focus:border-red-900" /></div>
+                        <div><label className="block text-xs font-bold text-pink-800 mb-1">Mother's Maiden Middle</label><input type="text" value={learnerForm.motherMiddle} onChange={e => setLearnerForm({...learnerForm, motherMiddle: e.target.value})} className="w-full border p-2 rounded bg-pink-50 focus:outline-none focus:border-red-900" /></div>
+                        <div><label className="block text-xs font-bold text-pink-800 mb-1">Mother's Maiden Last</label><input type="text" value={learnerForm.motherLast} onChange={e => setLearnerForm({...learnerForm, motherLast: e.target.value})} className="w-full border p-2 rounded bg-pink-50 focus:outline-none focus:border-red-900" /></div>
+                      </div>
+                    </div>
+                  </details>
+
+                  <details className="group border border-gray-300 rounded shadow-sm">
+                    <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                      6. Guardian & Contact <span className="text-gray-500">▼</span>
+                    </summary>
+                    <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white">
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Guardian Name (Optional)</label><input type="text" value={learnerForm.guardianName} onChange={e => setLearnerForm({...learnerForm, guardianName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Relationship</label><input type="text" value={learnerForm.guardianRelation} onChange={e => setLearnerForm({...learnerForm, guardianRelation: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Contact Number *</label><input type="text" required value={learnerForm.contactNumber} onChange={e => setLearnerForm({...learnerForm, contactNumber: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    </div>
+                  </details>
+                </form>
+              )}
+
+              {/* UPGRADED FACULTY FORM (ID assigned so button outside can trigger it) */}
+              {userType === "faculty" && (
+                <form id="faculty-form" onSubmit={handleCreateFaculty} className="space-y-4">
+                  <div className="bg-blue-50 p-4 rounded border border-blue-100 mb-4 text-sm text-blue-800">
+                    ℹ️ The system will automatically generate a secure password and login credentials for this staff member.
+                  </div>
+                  
+                  <details className="group border border-gray-300 rounded shadow-sm" open>
+                    <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                      1. Basic Information <span className="text-gray-500">▼</span>
+                    </summary>
+                    <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white">
+                      <div className="md:col-span-3">
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Employee No. (Max 7 Digits) *</label>
+                        <input type="text" maxLength={7} required value={facultyForm.employeeNo} onChange={e => setFacultyForm({...facultyForm, employeeNo: e.target.value.replace(/\D/g,'')})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" />
+                      </div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">First Name *</label><input type="text" required value={facultyForm.firstName} onChange={e => setFacultyForm({...facultyForm, firstName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Middle Name</label><input type="text" value={facultyForm.middleName} onChange={e => setFacultyForm({...facultyForm, middleName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Last Name *</label><input type="text" required value={facultyForm.lastName} onChange={e => setFacultyForm({...facultyForm, lastName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    </div>
+                  </details>
+
+                  <details className="group border border-gray-300 rounded shadow-sm">
+                    <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                      2. Employment Details <span className="text-gray-500">▼</span>
+                    </summary>
+                    <div className="p-4 bg-white">
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Start School Year *</label>
+                      <select value={facultyForm.startSchoolYear} onChange={e => setFacultyForm({...facultyForm, startSchoolYear: e.target.value})} className="w-full border p-2 rounded bg-white focus:outline-none focus:border-red-900">
+                        <option value="" disabled>Select School Year</option>
+                        {schoolYearOptions.map((sy) => (<option key={sy} value={sy}>{sy}</option>))}
+                      </select>
+                    </div>
+                  </details>
+
+                  <details className="group border border-gray-300 rounded shadow-sm">
+                    <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                      3. Account & Contact <span className="text-gray-500">▼</span>
+                    </summary>
+                    <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4 bg-white">
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Email Address *</label><input type="email" required value={facultyForm.email} onChange={e => setFacultyForm({...facultyForm, email: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Contact Number *</label><input type="text" required value={facultyForm.contactNumber} onChange={e => setFacultyForm({...facultyForm, contactNumber: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    </div>
+                  </details>
+                </form>
+              )}
             </div>
 
-            {/* LEARNER FORM */}
-            {userType === "learner" && (
-              <form onSubmit={handleCreateLearner} className="space-y-4">
-                {/* ... (Kept exactly as your fully working Learner form from previous message) ... */}
-                <details className="group border border-gray-300 rounded shadow-sm" open>
-                  <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
-                    1. Basic Identification <span className="text-gray-500">▼</span>
-                  </summary>
-                  <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white">
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">LRN (12 Digits) *</label><input type="text" maxLength={12} required value={learnerForm.lrn} onChange={e => setLearnerForm({...learnerForm, lrn: e.target.value.replace(/\D/g,'')})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Birthdate *</label><input type="date" required value={learnerForm.birthdate} onChange={e => setLearnerForm({...learnerForm, birthdate: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Gender *</label>
-                      <select required value={learnerForm.gender} onChange={e => setLearnerForm({...learnerForm, gender: e.target.value})} className="w-full border p-2 rounded bg-white focus:outline-none focus:border-red-900">
-                        <option value="">Select...</option><option value="Male">Male</option><option value="Female">Female</option>
+            {/* 3. FIXED FOOTER (Keeps buttons pinned to the bottom) */}
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end shrink-0 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+              {userType === "learner" ? (
+                <button type="submit" form="learner-form" className="bg-green-700 text-white font-bold py-2.5 px-6 rounded shadow-sm hover:bg-green-800 transition">
+                  Create Learner & Generate Credentials
+                </button>
+              ) : (
+                <button type="submit" form="faculty-form" className="bg-[#3e0f0f] text-white font-bold py-2.5 px-6 rounded shadow-sm hover:bg-red-900 transition">
+                  Create Faculty & Generate Credentials
+                </button>
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
+      {/* EDIT USER MODAL */}
+      {isEditModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl flex flex-col max-h-[90vh] overflow-hidden">
+            
+            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-white shrink-0 z-10 shadow-sm">
+              <h2 className="text-2xl font-bold text-gray-800">Edit {userType === 'learner' ? 'Learner' : 'Faculty'}</h2>
+              <button onClick={closeModals} className="text-gray-500 hover:text-gray-800 font-bold text-2xl">&times;</button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 bg-gray-50/50">
+               {userType === "learner" && (
+                <form id="edit-learner-form" onSubmit={handleUpdate} className="space-y-4">
+                  <details className="group border border-gray-300 rounded shadow-sm" open>
+                    <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                      1. Basic Identification <span className="text-gray-500">▼</span>
+                    </summary>
+                    <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white">
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">LRN (12 Digits)</label><input type="text" maxLength={12} value={learnerForm.lrn} onChange={e => setLearnerForm({...learnerForm, lrn: e.target.value.replace(/\D/g,'')})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Birthdate</label><input type="date" value={learnerForm.birthdate} onChange={e => setLearnerForm({...learnerForm, birthdate: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Gender</label>
+                        <select value={learnerForm.gender} onChange={e => setLearnerForm({...learnerForm, gender: e.target.value})} className="w-full border p-2 rounded bg-white focus:outline-none focus:border-blue-600">
+                          <option value="">Select...</option><option value="Male">Male</option><option value="Female">Female</option>
+                        </select>
+                      </div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">First Name</label><input type="text" value={learnerForm.firstName} onChange={e => setLearnerForm({...learnerForm, firstName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Middle Name</label><input type="text" value={learnerForm.middleName} onChange={e => setLearnerForm({...learnerForm, middleName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Last Name</label><input type="text" value={learnerForm.lastName} onChange={e => setLearnerForm({...learnerForm, lastName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
+                      <div className="md:col-span-3"><label className="block text-xs font-bold text-gray-700 mb-1">Email Address</label><input type="email" value={learnerForm.email} onChange={e => setLearnerForm({...learnerForm, email: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
+                    </div>
+                  </details>
+
+                  <details className="group border border-gray-300 rounded shadow-sm">
+                    <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                      2. Enrollment & School Year <span className="text-gray-500">▼</span>
+                    </summary>
+                    <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">School Year</label>
+                        <select value={learnerForm.schoolYear} onChange={e => setLearnerForm({...learnerForm, schoolYear: e.target.value})} className="w-full border p-2 rounded bg-white focus:outline-none focus:border-blue-600">
+                          <option value="" disabled>Select School Year</option>
+                          {schoolYearOptions.map((sy) => (<option key={sy} value={sy}>{sy}</option>))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Grade Level</label>
+                        <select value={learnerForm.gradeLevel} onChange={e => setLearnerForm({...learnerForm, gradeLevel: e.target.value})} className="w-full border p-2 rounded bg-white focus:outline-none focus:border-blue-600">
+                          <option value="7">Grade 7</option><option value="8">Grade 8</option><option value="9">Grade 9</option><option value="10">Grade 10</option>
+                        </select>
+                      </div>
+                      <div className="flex items-center mt-6">
+                        <label className="flex items-center space-x-2 cursor-pointer font-bold text-sm text-gray-800">
+                          <input type="checkbox" checked={learnerForm.isStarEligible} onChange={e => setLearnerForm({...learnerForm, isStarEligible: e.target.checked})} className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500" />
+                          <span>⭐ Star/Honors Eligible</span>
+                        </label>
+                      </div>
+                    </div>
+                  </details>
+
+                  <details className="group border border-gray-300 rounded shadow-sm">
+                    <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                      3. Demographics <span className="text-gray-500">▼</span>
+                    </summary>
+                    <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white">
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Mother Tongue</label><input type="text" value={learnerForm.motherTongue} onChange={e => setLearnerForm({...learnerForm, motherTongue: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">IP (Ethnic Group)</label><input type="text" value={learnerForm.ip} onChange={e => setLearnerForm({...learnerForm, ip: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Religion</label><input type="text" value={learnerForm.religion} onChange={e => setLearnerForm({...learnerForm, religion: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
+                    </div>
+                  </details>
+
+                  <details className="group border border-gray-300 rounded shadow-sm">
+                    <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                      4. Address <span className="text-gray-500">▼</span>
+                    </summary>
+                    <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4 bg-white">
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">House # / Street / Purok</label><input type="text" value={learnerForm.houseStreet} onChange={e => setLearnerForm({...learnerForm, houseStreet: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Barangay</label><input type="text" value={learnerForm.barangay} onChange={e => setLearnerForm({...learnerForm, barangay: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Municipality / City</label><input type="text" value={learnerForm.city} onChange={e => setLearnerForm({...learnerForm, city: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Province</label><input type="text" value={learnerForm.province} onChange={e => setLearnerForm({...learnerForm, province: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
+                    </div>
+                  </details>
+
+                  <details className="group border border-gray-300 rounded shadow-sm">
+                    <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                      5. Parents <span className="text-gray-500">▼</span>
+                    </summary>
+                    <div className="p-4 bg-white space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div><label className="block text-xs font-bold text-blue-800 mb-1">Father's First Name</label><input type="text" value={learnerForm.fatherFirst} onChange={e => setLearnerForm({...learnerForm, fatherFirst: e.target.value})} className="w-full border p-2 rounded bg-blue-50 focus:outline-none focus:border-blue-600" /></div>
+                        <div><label className="block text-xs font-bold text-blue-800 mb-1">Father's Middle Name</label><input type="text" value={learnerForm.fatherMiddle} onChange={e => setLearnerForm({...learnerForm, fatherMiddle: e.target.value})} className="w-full border p-2 rounded bg-blue-50 focus:outline-none focus:border-blue-600" /></div>
+                        <div><label className="block text-xs font-bold text-blue-800 mb-1">Father's Last Name</label><input type="text" value={learnerForm.fatherLast} onChange={e => setLearnerForm({...learnerForm, fatherLast: e.target.value})} className="w-full border p-2 rounded bg-blue-50 focus:outline-none focus:border-blue-600" /></div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div><label className="block text-xs font-bold text-pink-800 mb-1">Mother's First Name</label><input type="text" value={learnerForm.motherFirst} onChange={e => setLearnerForm({...learnerForm, motherFirst: e.target.value})} className="w-full border p-2 rounded bg-pink-50 focus:outline-none focus:border-blue-600" /></div>
+                        <div><label className="block text-xs font-bold text-pink-800 mb-1">Mother's Maiden Middle</label><input type="text" value={learnerForm.motherMiddle} onChange={e => setLearnerForm({...learnerForm, motherMiddle: e.target.value})} className="w-full border p-2 rounded bg-pink-50 focus:outline-none focus:border-blue-600" /></div>
+                        <div><label className="block text-xs font-bold text-pink-800 mb-1">Mother's Maiden Last</label><input type="text" value={learnerForm.motherLast} onChange={e => setLearnerForm({...learnerForm, motherLast: e.target.value})} className="w-full border p-2 rounded bg-pink-50 focus:outline-none focus:border-blue-600" /></div>
+                      </div>
+                    </div>
+                  </details>
+
+                  <details className="group border border-gray-300 rounded shadow-sm">
+                    <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                      6. Guardian & Contact <span className="text-gray-500">▼</span>
+                    </summary>
+                    <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white">
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Guardian Name</label><input type="text" value={learnerForm.guardianName} onChange={e => setLearnerForm({...learnerForm, guardianName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Relationship</label><input type="text" value={learnerForm.guardianRelation} onChange={e => setLearnerForm({...learnerForm, guardianRelation: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Contact Number</label><input type="text" value={learnerForm.contactNumber} onChange={e => setLearnerForm({...learnerForm, contactNumber: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
+                    </div>
+                  </details>
+                </form>
+              )}
+
+              {/* UPGRADED FACULTY FORM */}
+              {userType === "faculty" && (
+                <form id="edit-faculty-form" onSubmit={handleUpdate} className="space-y-4">
+                  <details className="group border border-gray-300 rounded shadow-sm" open>
+                    <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                      1. Basic Information <span className="text-gray-500">▼</span>
+                    </summary>
+                    <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white">
+                      <div className="md:col-span-3">
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Employee No. (Max 7 Digits)</label>
+                        <input type="text" maxLength={7} value={facultyForm.employeeNo} onChange={e => setFacultyForm({...facultyForm, employeeNo: e.target.value.replace(/\D/g,'')})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" />
+                      </div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">First Name</label><input type="text" value={facultyForm.firstName} onChange={e => setFacultyForm({...facultyForm, firstName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Middle Name</label><input type="text" value={facultyForm.middleName} onChange={e => setFacultyForm({...facultyForm, middleName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Last Name</label><input type="text" value={facultyForm.lastName} onChange={e => setFacultyForm({...facultyForm, lastName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
+                    </div>
+                  </details>
+
+                  <details className="group border border-gray-300 rounded shadow-sm">
+                    <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                      2. Employment Details <span className="text-gray-500">▼</span>
+                    </summary>
+                    <div className="p-4 bg-white">
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Start School Year</label>
+                      <select value={facultyForm.startSchoolYear} onChange={e => setFacultyForm({...facultyForm, startSchoolYear: e.target.value})} className="w-full border p-2 rounded bg-white focus:outline-none focus:border-blue-600">
+                        <option value="" disabled>Select School Year</option>
+                        {schoolYearOptions.map((sy) => (<option key={sy} value={sy}>{sy}</option>))}
                       </select>
                     </div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">First Name *</label><input type="text" required value={learnerForm.firstName} onChange={e => setLearnerForm({...learnerForm, firstName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Middle Name</label><input type="text" value={learnerForm.middleName} onChange={e => setLearnerForm({...learnerForm, middleName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Last Name *</label><input type="text" required value={learnerForm.lastName} onChange={e => setLearnerForm({...learnerForm, lastName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                    <div className="md:col-span-3"><label className="block text-xs font-bold text-gray-700 mb-1">Email Address (For Temp Password) *</label><input type="email" required value={learnerForm.email} onChange={e => setLearnerForm({...learnerForm, email: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                  </div>
-                </details>
+                  </details>
 
-                {/* 2. Enrollment */}
-                <details className="group border border-gray-300 rounded shadow-sm">
-                  <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
-                    2. Enrollment & School Year <span className="text-gray-500">▼</span>
-                  </summary>
-                  <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white">
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">School Year *</label>
-                      <select value={learnerForm.schoolYear} onChange={e => setLearnerForm({...learnerForm, schoolYear: e.target.value})} className="w-full border p-2 rounded bg-white focus:outline-none focus:border-red-900">
-                        <option value="2023-2024">2023-2024</option><option value="2024-2025">2024-2025</option>
-                      </select>
+                  <details className="group border border-gray-300 rounded shadow-sm">
+                    <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                      3. Account & Contact <span className="text-gray-500">▼</span>
+                    </summary>
+                    <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4 bg-white">
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Email Address</label><input type="email" value={facultyForm.email} onChange={e => setFacultyForm({...facultyForm, email: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">Contact Number</label><input type="text" value={facultyForm.contactNumber} onChange={e => setFacultyForm({...facultyForm, contactNumber: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
                     </div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Grade Level *</label>
-                      <select value={learnerForm.gradeLevel} onChange={e => setLearnerForm({...learnerForm, gradeLevel: e.target.value})} className="w-full border p-2 rounded bg-white focus:outline-none focus:border-red-900">
-                        <option value="7">Grade 7</option><option value="8">Grade 8</option><option value="9">Grade 9</option><option value="10">Grade 10</option>
-                      </select>
-                    </div>
-                    <div className="flex items-center mt-6">
-                      <label className="flex items-center space-x-2 cursor-pointer font-bold text-sm text-gray-800">
-                        <input type="checkbox" checked={learnerForm.isStarEligible} onChange={e => setLearnerForm({...learnerForm, isStarEligible: e.target.checked})} className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500" />
-                        <span>⭐ Star/Honors Eligible</span>
-                      </label>
-                    </div>
-                  </div>
-                </details>
+                  </details>
+                </form>
+              )}
+            </div>
 
-                {/* 3. Demographics */}
-                <details className="group border border-gray-300 rounded shadow-sm">
-                  <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
-                    3. Demographics <span className="text-gray-500">▼</span>
-                  </summary>
-                  <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white">
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Mother Tongue</label><input type="text" value={learnerForm.motherTongue} onChange={e => setLearnerForm({...learnerForm, motherTongue: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">IP (Ethnic Group)</label><input type="text" value={learnerForm.ip} onChange={e => setLearnerForm({...learnerForm, ip: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Religion</label><input type="text" value={learnerForm.religion} onChange={e => setLearnerForm({...learnerForm, religion: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                  </div>
-                </details>
-
-                {/* 4. Address */}
-                <details className="group border border-gray-300 rounded shadow-sm">
-                  <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
-                    4. Address <span className="text-gray-500">▼</span>
-                  </summary>
-                  <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4 bg-white">
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">House # / Street / Purok</label><input type="text" value={learnerForm.houseStreet} onChange={e => setLearnerForm({...learnerForm, houseStreet: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Barangay</label><input type="text" value={learnerForm.barangay} onChange={e => setLearnerForm({...learnerForm, barangay: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Municipality / City</label><input type="text" value={learnerForm.city} onChange={e => setLearnerForm({...learnerForm, city: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Province</label><input type="text" value={learnerForm.province} onChange={e => setLearnerForm({...learnerForm, province: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                  </div>
-                </details>
-
-                {/* 5. Parents */}
-                <details className="group border border-gray-300 rounded shadow-sm">
-                  <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
-                    5. Parents <span className="text-gray-500">▼</span>
-                  </summary>
-                  <div className="p-4 bg-white space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div><label className="block text-xs font-bold text-blue-800 mb-1">Father's First Name</label><input type="text" value={learnerForm.fatherFirst} onChange={e => setLearnerForm({...learnerForm, fatherFirst: e.target.value})} className="w-full border p-2 rounded bg-blue-50 focus:outline-none focus:border-red-900" /></div>
-                      <div><label className="block text-xs font-bold text-blue-800 mb-1">Father's Middle Name</label><input type="text" value={learnerForm.fatherMiddle} onChange={e => setLearnerForm({...learnerForm, fatherMiddle: e.target.value})} className="w-full border p-2 rounded bg-blue-50 focus:outline-none focus:border-red-900" /></div>
-                      <div><label className="block text-xs font-bold text-blue-800 mb-1">Father's Last Name</label><input type="text" value={learnerForm.fatherLast} onChange={e => setLearnerForm({...learnerForm, fatherLast: e.target.value})} className="w-full border p-2 rounded bg-blue-50 focus:outline-none focus:border-red-900" /></div>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div><label className="block text-xs font-bold text-pink-800 mb-1">Mother's First Name</label><input type="text" value={learnerForm.motherFirst} onChange={e => setLearnerForm({...learnerForm, motherFirst: e.target.value})} className="w-full border p-2 rounded bg-pink-50 focus:outline-none focus:border-red-900" /></div>
-                      <div><label className="block text-xs font-bold text-pink-800 mb-1">Mother's Maiden Middle</label><input type="text" value={learnerForm.motherMiddle} onChange={e => setLearnerForm({...learnerForm, motherMiddle: e.target.value})} className="w-full border p-2 rounded bg-pink-50 focus:outline-none focus:border-red-900" /></div>
-                      <div><label className="block text-xs font-bold text-pink-800 mb-1">Mother's Maiden Last</label><input type="text" value={learnerForm.motherLast} onChange={e => setLearnerForm({...learnerForm, motherLast: e.target.value})} className="w-full border p-2 rounded bg-pink-50 focus:outline-none focus:border-red-900" /></div>
-                    </div>
-                  </div>
-                </details>
-
-                {/* 6. Guardian & Contact */}
-                <details className="group border border-gray-300 rounded shadow-sm">
-                  <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
-                    6. Guardian & Contact <span className="text-gray-500">▼</span>
-                  </summary>
-                  <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white">
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Guardian Name (Optional)</label><input type="text" value={learnerForm.guardianName} onChange={e => setLearnerForm({...learnerForm, guardianName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Relationship</label><input type="text" value={learnerForm.guardianRelation} onChange={e => setLearnerForm({...learnerForm, guardianRelation: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Contact Number *</label><input type="text" required value={learnerForm.contactNumber} onChange={e => setLearnerForm({...learnerForm, contactNumber: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                  </div>
-                </details>
-
-                <div className="flex justify-end pt-4 sticky bottom-0 bg-white border-t mt-4">
-                  <button type="submit" className="bg-green-700 text-white font-bold py-3 px-8 rounded shadow hover:bg-green-800 transition">
-                    Create Learner & Generate Credentials
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {/* UPGRADED FACULTY FORM */}
-            {userType === "faculty" && (
-              <form onSubmit={handleCreateFaculty} className="space-y-4">
-                <div className="bg-blue-50 p-4 rounded border border-blue-100 mb-4 text-sm text-blue-800">
-                  ℹ️ The system will automatically generate a secure password and login credentials for this staff member.
-                </div>
-                
-                {/* 1. Basic Information */}
-                <details className="group border border-gray-300 rounded shadow-sm" open>
-                  <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
-                    1. Basic Information <span className="text-gray-500">▼</span>
-                  </summary>
-                  <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white">
-                    <div className="md:col-span-3">
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Employee No. (Max 7 Digits) *</label>
-                      <input type="text" maxLength={7} required value={facultyForm.employeeNo} onChange={e => setFacultyForm({...facultyForm, employeeNo: e.target.value.replace(/\D/g,'')})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" />
-                    </div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">First Name *</label><input type="text" required value={facultyForm.firstName} onChange={e => setFacultyForm({...facultyForm, firstName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Middle Name</label><input type="text" value={facultyForm.middleName} onChange={e => setFacultyForm({...facultyForm, middleName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Last Name *</label><input type="text" required value={facultyForm.lastName} onChange={e => setFacultyForm({...facultyForm, lastName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                  </div>
-                </details>
-
-                {/* 2. Employment Details */}
-                <details className="group border border-gray-300 rounded shadow-sm">
-                  <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
-                    2. Employment Details <span className="text-gray-500">▼</span>
-                  </summary>
-                  <div className="p-4 bg-white">
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Start School Year *</label>
-                    <select value={facultyForm.startSchoolYear} onChange={e => setFacultyForm({...facultyForm, startSchoolYear: e.target.value})} className="w-full border p-2 rounded bg-white focus:outline-none focus:border-red-900">
-                      <option value="2023-2024">2023-2024</option>
-                      <option value="2024-2025">2024-2025</option>
-                    </select>
-                  </div>
-                </details>
-
-                {/* 3. Account & Contact */}
-                <details className="group border border-gray-300 rounded shadow-sm">
-                  <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
-                    3. Account & Contact <span className="text-gray-500">▼</span>
-                  </summary>
-                  <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4 bg-white">
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Email Address *</label><input type="email" required value={facultyForm.email} onChange={e => setFacultyForm({...facultyForm, email: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Contact Number *</label><input type="text" required value={facultyForm.contactNumber} onChange={e => setFacultyForm({...facultyForm, contactNumber: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
-                  </div>
-                </details>
-
-                <div className="flex justify-end pt-4 sticky bottom-0 bg-white border-t mt-4">
-                  <button type="submit" className="bg-[#3e0f0f] text-white font-bold py-3 px-8 rounded shadow hover:bg-red-900 transition">
-                    Create Faculty & Generate Credentials
-                  </button>
-                </div>
-              </form>
-            )}
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end shrink-0 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+              <button type="submit" form={userType === "learner" ? "edit-learner-form" : "edit-faculty-form"} className="bg-blue-600 text-white font-bold py-2.5 px-6 rounded shadow-sm hover:bg-blue-700 transition">
+                Save Changes
+              </button>
+            </div>
 
           </div>
         </div>

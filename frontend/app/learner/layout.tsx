@@ -1,21 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useEffect } from "react";
 
 export default function LearnerLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     const token = localStorage.getItem("token");
     const roleId = localStorage.getItem("role_id");
 
+    // Role ID 3 is typically the Learner/Student
     if (!token || roleId !== "3") {
       router.push("/login");
       return;
     }
-
   }, [router]);
 
   const handleLogout = () => {
@@ -34,8 +35,27 @@ export default function LearnerLayout({ children }: { children: React.ReactNode 
         </div>
 
         <nav className="flex-1 px-4 py-6 space-y-2">
-          <div className="text-xs font-semibold text-red-300 uppercase tracking-wider mb-2 mt-4">Academics</div>
-          <Link href="/learner/dashboard" className="block px-4 py-2 rounded bg-[#5D1919] text-white font-bold">
+          <div className="text-xs font-semibold text-red-300 uppercase tracking-wider mb-2 mt-4">Menu</div>
+          
+          <Link 
+            href="/learner/dashboard" 
+            className={`block px-4 py-2 rounded transition ${
+              pathname === '/learner/dashboard' 
+                ? 'bg-[#5D1919] text-white font-bold' 
+                : 'text-red-100 hover:bg-[#5D1919] hover:text-white'
+            }`}
+          >
+            Dashboard
+          </Link>
+          
+          <Link 
+            href="/learner/my-grades" 
+            className={`block px-4 py-2 rounded transition ${
+              pathname === '/learner/my-grades' 
+                ? 'bg-[#5D1919] text-white font-bold' 
+                : 'text-red-100 hover:bg-[#5D1919] hover:text-white'
+            }`}
+          >
             My Grades
           </Link>
         </nav>
