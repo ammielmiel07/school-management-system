@@ -1,0 +1,421 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+export default function AdminAccounts() {
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [userType, setUserType] = useState("learner");
+  
+  // Credentials Popup State
+  const [generatedCreds, setGeneratedCreds] = useState<any>(null);
+
+  // --- LEARNER STATE (SF1) ---
+  const [learnerForm, setLearnerForm] = useState({
+    lrn: "", birthdate: "", gender: "", firstName: "", middleName: "", lastName: "", email: "",
+    schoolYear: "2024-2025", gradeLevel: "7", isStarEligible: false,
+    motherTongue: "", ip: "", religion: "",
+    houseStreet: "", barangay: "", city: "", province: "",
+    fatherFirst: "", fatherMiddle: "", fatherLast: "",
+    motherFirst: "", motherMiddle: "", motherLast: "",
+    guardianName: "", guardianRelation: "", contactNumber: ""
+  });
+
+  // --- NEW FACULTY STATE ---
+  const [facultyForm, setFacultyForm] = useState({
+    employeeNo: "", firstName: "", middleName: "", lastName: "", 
+    startSchoolYear: "2024-2025", 
+    email: "", contactNumber: ""
+  });
+
+  const fetchAccounts = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch("http://localhost:5000/api/admin/accounts", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) setAccounts(data.accounts || []);
+    } catch (err) {
+      console.error("Failed to fetch accounts");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchAccounts(); }, []);
+
+  const handleCreateLearner = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (learnerForm.lrn.length !== 12) return alert("LRN must be exactly 12 digits.");
+
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch("http://localhost:5000/api/admin/accounts/learner", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(learnerForm),
+      });
+      
+      const data = await res.json();
+      if (res.ok) {
+        setGeneratedCreds(data.credentials);
+        fetchAccounts();
+      } else {
+        alert(data.error || "Failed to create account.");
+      }
+    } catch (err) {
+      alert("Server error.");
+    }
+  };
+
+  const handleCreateFaculty = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (facultyForm.employeeNo.length > 7) return alert("Employee Number cannot exceed 7 digits.");
+
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch("http://localhost:5000/api/admin/accounts/faculty", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(facultyForm),
+      });
+      
+      const data = await res.json();
+      if (res.ok) {
+        setGeneratedCreds(data.credentials);
+        fetchAccounts();
+      } else {
+        alert(data.error || "Failed to create account.");
+      }
+    } catch (err) {
+      alert("Server error.");
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!window.confirm("Are you sure you want to delete this account? This will also remove their profile data.")) return;
+
+    try {
+      const res = await fetch(`http://localhost:5000/api/admin/accounts/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        fetchAccounts();
+        alert(data.message || "Account deleted!");
+      } else {
+        alert(data.error);
+      }
+    } catch (err) {
+      alert("Server error.");
+    }
+  };
+
+  const closeModals = () => {
+    setIsAddModalOpen(false);
+    setGeneratedCreds(null);
+    setLearnerForm({
+      lrn: "", birthdate: "", gender: "", firstName: "", middleName: "", lastName: "", email: "",
+      schoolYear: "2024-2025", gradeLevel: "7", isStarEligible: false,
+      motherTongue: "", ip: "", religion: "",
+      houseStreet: "", barangay: "", city: "", province: "",
+      fatherFirst: "", fatherMiddle: "", fatherLast: "", motherFirst: "", motherMiddle: "", motherLast: "",
+      guardianName: "", guardianRelation: "", contactNumber: ""
+    });
+    setFacultyForm({ employeeNo: "", firstName: "", middleName: "", lastName: "", startSchoolYear: "2024-2025", email: "", contactNumber: "" });
+  };
+
+  return (
+    <div className="p-8 max-w-7xl mx-auto">
+      {/* HEADER */}
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-2">
+            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"></path></svg>
+            Manage Accounts
+          </h1>
+          <p className="text-gray-600 text-sm mt-1">View, add, and remove system users.</p>
+        </div>
+        <button onClick={() => setIsAddModalOpen(true)} className="bg-green-700 text-white px-4 py-2 rounded shadow hover:bg-green-800 font-bold">
+          + Add User
+        </button>
+      </div>
+
+      {/* DATA TABLE */}
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        {loading ? (
+          <p className="p-8 text-center text-gray-500">Loading accounts...</p>
+        ) : (
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-[#3e0f0f] text-white text-sm font-bold uppercase tracking-wider">
+                <th className="p-4">Name</th>
+                <th className="p-4">Username</th>
+                <th className="p-4">Role</th>
+                <th className="p-4 text-center">ID / LRN</th>
+                <th className="p-4 text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {accounts.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="p-8 text-center text-gray-500 italic">No accounts found.</td>
+                </tr>
+              ) : (
+                accounts.map(acc => (
+                  <tr key={acc.user_id} className="border-b border-gray-200 hover:bg-gray-50">
+                    <td className="p-4 font-semibold text-gray-800">{acc.last_name}, {acc.first_name}</td>
+                    <td className="p-4 text-gray-600">{acc.username}</td>
+                    <td className="p-4 text-gray-600 capitalize">
+                      <span className={`px-2 py-1 rounded text-xs font-bold ${
+                        acc.role === 'faculty' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'
+                      }`}>
+                        {acc.role}
+                      </span>
+                    </td>
+                    <td className="p-4 text-center text-gray-600">{acc.identifier}</td>
+                    <td className="p-4 text-center">
+                      <button 
+                        onClick={() => handleDelete(acc.user_id)}
+                        className="text-red-600 hover:text-red-800 font-semibold px-2 py-1 border border-red-600 rounded transition"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* ONE-TIME CREDENTIALS POPUP */}
+      {generatedCreds && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white p-8 rounded-lg shadow-2xl w-full max-w-md text-center border-t-8 border-green-600">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
+            </div>
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">Account Created!</h2>
+            <p className="text-gray-600 text-sm mb-6">A temporary password has been generated and sent to <strong>{generatedCreds.emailSentTo}</strong>.</p>
+            
+            <div className="bg-gray-50 p-4 rounded text-left space-y-3 mb-6 border border-gray-200">
+              <div>
+                <span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Username</span>
+                <p className="font-mono text-lg font-bold text-gray-800">{generatedCreds.learnerUsername}</p>
+              </div>
+              
+              {generatedCreds.parentUsername && (
+                <div>
+                  <span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Parent Username</span>
+                  <p className="font-mono text-lg font-bold text-gray-800">{generatedCreds.parentUsername}</p>
+                </div>
+              )}
+              
+              <hr />
+              <div>
+                <span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Temporary Password</span>
+                <p className="font-mono text-xl font-bold text-red-600 bg-red-50 p-2 rounded inline-block mt-1">{generatedCreds.password}</p>
+              </div>
+            </div>
+
+            <button onClick={closeModals} className="w-full bg-gray-800 text-white font-bold py-3 rounded hover:bg-gray-900 transition">
+              Close & Return to Dashboard
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ADD USER MODAL */}
+      {isAddModalOpen && !generatedCreds && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4 sticky top-0 bg-white pb-2 border-b">
+              <h2 className="text-2xl font-bold text-gray-800">Add New User</h2>
+              <button onClick={closeModals} className="text-gray-500 hover:text-gray-800 font-bold text-2xl">&times;</button>
+            </div>
+
+            <div className="mb-6 flex gap-4">
+              <button onClick={() => setUserType("learner")} className={`px-6 py-2 rounded font-semibold transition ${userType === "learner" ? "bg-red-900 text-white" : "bg-gray-200 text-gray-700 hover:bg-gray-300"}`}>Learner (SF1)</button>
+              <button onClick={() => setUserType("faculty")} className={`px-6 py-2 rounded font-semibold transition ${userType === "faculty" ? "bg-red-900 text-white" : "bg-gray-200 text-gray-700 hover:bg-gray-300"}`}>Faculty</button>
+            </div>
+
+            {/* LEARNER FORM */}
+            {userType === "learner" && (
+              <form onSubmit={handleCreateLearner} className="space-y-4">
+                {/* ... (Kept exactly as your fully working Learner form from previous message) ... */}
+                <details className="group border border-gray-300 rounded shadow-sm" open>
+                  <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                    1. Basic Identification <span className="text-gray-500">▼</span>
+                  </summary>
+                  <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white">
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">LRN (12 Digits) *</label><input type="text" maxLength={12} required value={learnerForm.lrn} onChange={e => setLearnerForm({...learnerForm, lrn: e.target.value.replace(/\D/g,'')})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Birthdate *</label><input type="date" required value={learnerForm.birthdate} onChange={e => setLearnerForm({...learnerForm, birthdate: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Gender *</label>
+                      <select required value={learnerForm.gender} onChange={e => setLearnerForm({...learnerForm, gender: e.target.value})} className="w-full border p-2 rounded bg-white focus:outline-none focus:border-red-900">
+                        <option value="">Select...</option><option value="Male">Male</option><option value="Female">Female</option>
+                      </select>
+                    </div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">First Name *</label><input type="text" required value={learnerForm.firstName} onChange={e => setLearnerForm({...learnerForm, firstName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Middle Name</label><input type="text" value={learnerForm.middleName} onChange={e => setLearnerForm({...learnerForm, middleName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Last Name *</label><input type="text" required value={learnerForm.lastName} onChange={e => setLearnerForm({...learnerForm, lastName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    <div className="md:col-span-3"><label className="block text-xs font-bold text-gray-700 mb-1">Email Address (For Temp Password) *</label><input type="email" required value={learnerForm.email} onChange={e => setLearnerForm({...learnerForm, email: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                  </div>
+                </details>
+
+                {/* 2. Enrollment */}
+                <details className="group border border-gray-300 rounded shadow-sm">
+                  <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                    2. Enrollment & School Year <span className="text-gray-500">▼</span>
+                  </summary>
+                  <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white">
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">School Year *</label>
+                      <select value={learnerForm.schoolYear} onChange={e => setLearnerForm({...learnerForm, schoolYear: e.target.value})} className="w-full border p-2 rounded bg-white focus:outline-none focus:border-red-900">
+                        <option value="2023-2024">2023-2024</option><option value="2024-2025">2024-2025</option>
+                      </select>
+                    </div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Grade Level *</label>
+                      <select value={learnerForm.gradeLevel} onChange={e => setLearnerForm({...learnerForm, gradeLevel: e.target.value})} className="w-full border p-2 rounded bg-white focus:outline-none focus:border-red-900">
+                        <option value="7">Grade 7</option><option value="8">Grade 8</option><option value="9">Grade 9</option><option value="10">Grade 10</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center mt-6">
+                      <label className="flex items-center space-x-2 cursor-pointer font-bold text-sm text-gray-800">
+                        <input type="checkbox" checked={learnerForm.isStarEligible} onChange={e => setLearnerForm({...learnerForm, isStarEligible: e.target.checked})} className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500" />
+                        <span>⭐ Star/Honors Eligible</span>
+                      </label>
+                    </div>
+                  </div>
+                </details>
+
+                {/* 3. Demographics */}
+                <details className="group border border-gray-300 rounded shadow-sm">
+                  <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                    3. Demographics <span className="text-gray-500">▼</span>
+                  </summary>
+                  <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white">
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Mother Tongue</label><input type="text" value={learnerForm.motherTongue} onChange={e => setLearnerForm({...learnerForm, motherTongue: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">IP (Ethnic Group)</label><input type="text" value={learnerForm.ip} onChange={e => setLearnerForm({...learnerForm, ip: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Religion</label><input type="text" value={learnerForm.religion} onChange={e => setLearnerForm({...learnerForm, religion: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                  </div>
+                </details>
+
+                {/* 4. Address */}
+                <details className="group border border-gray-300 rounded shadow-sm">
+                  <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                    4. Address <span className="text-gray-500">▼</span>
+                  </summary>
+                  <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4 bg-white">
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">House # / Street / Purok</label><input type="text" value={learnerForm.houseStreet} onChange={e => setLearnerForm({...learnerForm, houseStreet: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Barangay</label><input type="text" value={learnerForm.barangay} onChange={e => setLearnerForm({...learnerForm, barangay: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Municipality / City</label><input type="text" value={learnerForm.city} onChange={e => setLearnerForm({...learnerForm, city: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Province</label><input type="text" value={learnerForm.province} onChange={e => setLearnerForm({...learnerForm, province: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                  </div>
+                </details>
+
+                {/* 5. Parents */}
+                <details className="group border border-gray-300 rounded shadow-sm">
+                  <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                    5. Parents <span className="text-gray-500">▼</span>
+                  </summary>
+                  <div className="p-4 bg-white space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div><label className="block text-xs font-bold text-blue-800 mb-1">Father's First Name</label><input type="text" value={learnerForm.fatherFirst} onChange={e => setLearnerForm({...learnerForm, fatherFirst: e.target.value})} className="w-full border p-2 rounded bg-blue-50 focus:outline-none focus:border-red-900" /></div>
+                      <div><label className="block text-xs font-bold text-blue-800 mb-1">Father's Middle Name</label><input type="text" value={learnerForm.fatherMiddle} onChange={e => setLearnerForm({...learnerForm, fatherMiddle: e.target.value})} className="w-full border p-2 rounded bg-blue-50 focus:outline-none focus:border-red-900" /></div>
+                      <div><label className="block text-xs font-bold text-blue-800 mb-1">Father's Last Name</label><input type="text" value={learnerForm.fatherLast} onChange={e => setLearnerForm({...learnerForm, fatherLast: e.target.value})} className="w-full border p-2 rounded bg-blue-50 focus:outline-none focus:border-red-900" /></div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div><label className="block text-xs font-bold text-pink-800 mb-1">Mother's First Name</label><input type="text" value={learnerForm.motherFirst} onChange={e => setLearnerForm({...learnerForm, motherFirst: e.target.value})} className="w-full border p-2 rounded bg-pink-50 focus:outline-none focus:border-red-900" /></div>
+                      <div><label className="block text-xs font-bold text-pink-800 mb-1">Mother's Maiden Middle</label><input type="text" value={learnerForm.motherMiddle} onChange={e => setLearnerForm({...learnerForm, motherMiddle: e.target.value})} className="w-full border p-2 rounded bg-pink-50 focus:outline-none focus:border-red-900" /></div>
+                      <div><label className="block text-xs font-bold text-pink-800 mb-1">Mother's Maiden Last</label><input type="text" value={learnerForm.motherLast} onChange={e => setLearnerForm({...learnerForm, motherLast: e.target.value})} className="w-full border p-2 rounded bg-pink-50 focus:outline-none focus:border-red-900" /></div>
+                    </div>
+                  </div>
+                </details>
+
+                {/* 6. Guardian & Contact */}
+                <details className="group border border-gray-300 rounded shadow-sm">
+                  <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                    6. Guardian & Contact <span className="text-gray-500">▼</span>
+                  </summary>
+                  <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white">
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Guardian Name (Optional)</label><input type="text" value={learnerForm.guardianName} onChange={e => setLearnerForm({...learnerForm, guardianName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Relationship</label><input type="text" value={learnerForm.guardianRelation} onChange={e => setLearnerForm({...learnerForm, guardianRelation: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Contact Number *</label><input type="text" required value={learnerForm.contactNumber} onChange={e => setLearnerForm({...learnerForm, contactNumber: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                  </div>
+                </details>
+
+                <div className="flex justify-end pt-4 sticky bottom-0 bg-white border-t mt-4">
+                  <button type="submit" className="bg-green-700 text-white font-bold py-3 px-8 rounded shadow hover:bg-green-800 transition">
+                    Create Learner & Generate Credentials
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* UPGRADED FACULTY FORM */}
+            {userType === "faculty" && (
+              <form onSubmit={handleCreateFaculty} className="space-y-4">
+                <div className="bg-blue-50 p-4 rounded border border-blue-100 mb-4 text-sm text-blue-800">
+                  ℹ️ The system will automatically generate a secure password and login credentials for this staff member.
+                </div>
+                
+                {/* 1. Basic Information */}
+                <details className="group border border-gray-300 rounded shadow-sm" open>
+                  <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                    1. Basic Information <span className="text-gray-500">▼</span>
+                  </summary>
+                  <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white">
+                    <div className="md:col-span-3">
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Employee No. (Max 7 Digits) *</label>
+                      <input type="text" maxLength={7} required value={facultyForm.employeeNo} onChange={e => setFacultyForm({...facultyForm, employeeNo: e.target.value.replace(/\D/g,'')})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" />
+                    </div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">First Name *</label><input type="text" required value={facultyForm.firstName} onChange={e => setFacultyForm({...facultyForm, firstName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Middle Name</label><input type="text" value={facultyForm.middleName} onChange={e => setFacultyForm({...facultyForm, middleName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Last Name *</label><input type="text" required value={facultyForm.lastName} onChange={e => setFacultyForm({...facultyForm, lastName: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                  </div>
+                </details>
+
+                {/* 2. Employment Details */}
+                <details className="group border border-gray-300 rounded shadow-sm">
+                  <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                    2. Employment Details <span className="text-gray-500">▼</span>
+                  </summary>
+                  <div className="p-4 bg-white">
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Start School Year *</label>
+                    <select value={facultyForm.startSchoolYear} onChange={e => setFacultyForm({...facultyForm, startSchoolYear: e.target.value})} className="w-full border p-2 rounded bg-white focus:outline-none focus:border-red-900">
+                      <option value="2023-2024">2023-2024</option>
+                      <option value="2024-2025">2024-2025</option>
+                    </select>
+                  </div>
+                </details>
+
+                {/* 3. Account & Contact */}
+                <details className="group border border-gray-300 rounded shadow-sm">
+                  <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
+                    3. Account & Contact <span className="text-gray-500">▼</span>
+                  </summary>
+                  <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4 bg-white">
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Email Address *</label><input type="email" required value={facultyForm.email} onChange={e => setFacultyForm({...facultyForm, email: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Contact Number *</label><input type="text" required value={facultyForm.contactNumber} onChange={e => setFacultyForm({...facultyForm, contactNumber: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
+                  </div>
+                </details>
+
+                <div className="flex justify-end pt-4 sticky bottom-0 bg-white border-t mt-4">
+                  <button type="submit" className="bg-[#3e0f0f] text-white font-bold py-3 px-8 rounded shadow hover:bg-red-900 transition">
+                    Create Faculty & Generate Credentials
+                  </button>
+                </div>
+              </form>
+            )}
+
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
