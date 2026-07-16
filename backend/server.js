@@ -257,6 +257,83 @@ app.post('/api/admin/users/faculty', verifyToken, async (req, res) => {
     }
 });
 
+// GET all Subjects
+app.get('/api/admin/subjects', verifyToken, async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM subjects ORDER BY id ASC');
+        res.json({ success: true, subjects: result.rows });
+    } catch (err) {
+        console.error("Error fetching subjects:", err);
+        res.status(500).json({ error: "Failed to fetch subjects." });
+    }
+});
+
+// POST (Add) a new Subject
+app.post('/api/admin/subjects', verifyToken, async (req, res) => {
+    const { subject_name, ww_weight, pt_weight, ex_weight } = req.body;
+
+    try {
+        const result = await pool.query(
+            `INSERT INTO subjects (subject_name, ww_weight, pt_weight, ex_weight) 
+             VALUES ($1, $2, $3, $4) RETURNING *`,
+            [subject_name, ww_weight, pt_weight, ex_weight]
+        );
+
+        res.json({ success: true, subject: result.rows[0], message: "Subject added successfully!" });
+    } catch (err) {
+        console.error("Error adding subject:", err);
+        res.status(500).json({ error: "Failed to add subject." });
+    }
+});
+
+// UPDATE a Subject
+app.put('/api/admin/subjects/:id', verifyToken, async (req, res) => {
+    const { id } = req.params;
+    const { subject_name, ww_weight, pt_weight, ex_weight } = req.body;
+
+    try {
+        const result = await pool.query(
+            `UPDATE subjects 
+             SET subject_name = $1, ww_weight = $2, pt_weight = $3, ex_weight = $4 
+             WHERE id = $5 RETURNING *`,
+            [subject_name, ww_weight, pt_weight, ex_weight, id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Subject not found." });
+        }
+
+        res.json({ success: true, subject: result.rows[0], message: "Subject updated successfully!" });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Failed to update subject." });
+    }
+});
+
+// DELETE a Subject
+app.delete('/api/admin/subjects/:id', verifyToken, async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        // Note: If a subject is tied to existing faculty loads, PostgreSQL might block this 
+        // if you have foreign key constraints set up to prevent accidental deletion.
+        const result = await pool.query('DELETE FROM subjects WHERE id = $1 RETURNING *', [id]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Subject not found." });
+        }
+
+        res.json({ success: true, message: "Subject deleted successfully!" });
+    } catch (err) {
+        console.error(err);
+        // Catch constraint violations (e.g., trying to delete a subject currently being taught)
+        if (err.code === '23503') {
+            return res.status(400).json({ error: "Cannot delete this subject because it is assigned to a class." });
+        }
+        res.status(500).json({ error: "Failed to delete subject." });
+    }
+});
+
 // GET: Fetch all sections
 app.get('/api/admin/sections', verifyToken, async (req, res) => {
     try {
@@ -265,6 +342,84 @@ app.get('/api/admin/sections', verifyToken, async (req, res) => {
     } catch (err) {
         console.error(err.message);
         res.status(500).json({ error: "Failed to fetch sections." });
+    }
+});
+
+// ==========================================
+// ADMIN: SECTIONS CRUD
+// ==========================================
+
+// GET all Sections
+app.get('/api/admin/sections', verifyToken, async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM sections ORDER BY grade_level ASC, section_name ASC');
+        res.json({ success: true, sections: result.rows });
+    } catch (err) {
+        console.error("Error fetching sections:", err);
+        res.status(500).json({ error: "Failed to fetch sections." });
+    }
+});
+
+// POST (Add) a new Section
+app.post('/api/admin/sections', verifyToken, async (req, res) => {
+    const { section_name, grade_level } = req.body;
+
+    try {
+        const result = await pool.query(
+            `INSERT INTO sections (section_name, grade_level) 
+             VALUES ($1, $2) RETURNING *`,
+            [section_name, grade_level]
+        );
+
+        res.json({ success: true, section: result.rows[0], message: "Section added successfully!" });
+    } catch (err) {
+        console.error("Error adding section:", err);
+        res.status(500).json({ error: "Failed to add section." });
+    }
+});
+
+// UPDATE a Section
+app.put('/api/admin/sections/:id', verifyToken, async (req, res) => {
+    const { id } = req.params;
+    const { section_name, grade_level } = req.body;
+
+    try {
+        const result = await pool.query(
+            `UPDATE sections 
+             SET section_name = $1, grade_level = $2 
+             WHERE id = $3 RETURNING *`,
+            [section_name, grade_level, id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Section not found." });
+        }
+
+        res.json({ success: true, section: result.rows[0], message: "Section updated successfully!" });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Failed to update section." });
+    }
+});
+
+// DELETE a Section
+app.delete('/api/admin/sections/:id', verifyToken, async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const result = await pool.query('DELETE FROM sections WHERE id = $1 RETURNING *', [id]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Section not found." });
+        }
+
+        res.json({ success: true, message: "Section deleted successfully!" });
+    } catch (err) {
+        console.error(err);
+        if (err.code === '23503') {
+            return res.status(400).json({ error: "Cannot delete this section because students or faculty are currently assigned to it." });
+        }
+        res.status(500).json({ error: "Failed to delete section." });
     }
 });
 
@@ -291,6 +446,335 @@ app.post('/api/admin/sections', verifyToken, async (req, res) => {
             return res.status(400).json({ error: "This section name already exists." });
         }
         res.status(500).json({ error: "Failed to add section." });
+    }
+});
+
+// GET: Fetch all sections AND their current advisers
+app.get('/api/admin/sections/advisers', verifyToken, async (req, res) => {
+    try {
+        const settings = await pool.query('SELECT current_school_year FROM system_settings LIMIT 1');
+        const activeYear = settings.rows[0]?.current_school_year;
+
+        // This joins sections with advisers for the ACTIVE year only
+        const result = await pool.query(`
+            SELECT s.id, s.section_name, s.grade_level, 
+                   f.first_name, f.last_name 
+            FROM sections s
+            LEFT JOIN section_advisories sa ON s.id = sa.section_id AND sa.school_year = $1
+            LEFT JOIN faculty_profiles f ON sa.faculty_id = f.id
+            ORDER BY s.grade_level ASC, s.section_name ASC
+        `, [activeYear]);
+        
+        // We also need the faculty list for the dropdown
+        const faculty = await pool.query('SELECT id, first_name, last_name, employee_no FROM faculty_profiles ORDER BY last_name ASC');
+
+        res.json({ 
+            success: true, 
+            sections: result.rows, 
+            faculty: faculty.rows,
+            active_school_year: activeYear 
+        });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Failed to fetch sections and advisers." });
+    }
+});
+
+// POST: Assign or Update an Adviser
+app.post('/api/admin/sections/advisers', verifyToken, async (req, res) => {
+    try {
+        if (req.user.role_id !== 1) {
+            return res.status(403).json({ error: "Access denied. Admins only." });
+        }
+
+        const { section_id, faculty_id, school_year } = req.body;
+
+        // "ON CONFLICT" means if this section already has an adviser this year, update it!
+        await pool.query(`
+            INSERT INTO section_advisories (section_id, faculty_id, school_year) 
+            VALUES ($1, $2, $3)
+            ON CONFLICT (section_id, school_year) 
+            DO UPDATE SET faculty_id = EXCLUDED.faculty_id
+        `, [section_id, faculty_id, school_year]);
+
+        res.json({ success: true, message: "Adviser assigned successfully!" });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Failed to assign adviser." });
+    }
+});
+
+// ==========================================
+// ADMIN: ACCOUNTS (USERS) CRUD
+// ==========================================
+
+// GET all Accounts (combined from faculty and learners)
+app.get('/api/admin/accounts', verifyToken, async (req, res) => {
+    try {
+        // FIX: Hardcode the string 'faculty' as role, since we know these are faculty profiles
+        const faculty = await pool.query(`
+            SELECT u.id as user_id, u.username, 'faculty' as role, f.id as profile_id, f.first_name, f.last_name, f.employee_no as identifier 
+            FROM users u JOIN faculty_profiles f ON u.id = f.user_id
+        `);
+        
+        // FIX: Hardcode the string 'learner' as role, since we know these are learner profiles
+        const learners = await pool.query(`
+            SELECT u.id as user_id, u.username, 'learner' as role, l.id as profile_id, l.first_name, l.last_name, l.lrn as identifier 
+            FROM users u JOIN learner_profiles l ON u.id = l.user_id
+        `);
+
+        // Combine both lists into one array
+        const allAccounts = [...faculty.rows, ...learners.rows];
+        res.json({ success: true, accounts: allAccounts });
+    } catch (err) {
+        console.error("Error fetching accounts:", err);
+        res.status(500).json({ error: "Failed to fetch accounts." });
+    }
+});
+
+// POST: Create Learner (SF1 Compliant) AND auto-generate Parent
+app.post('/api/admin/accounts/learner', verifyToken, async (req, res) => {
+    try {
+        if (req.user.role_id !== 1) {
+            return res.status(403).json({ error: "Access denied. Admins only." });
+        }
+
+        const data = req.body;
+
+        // 1. Auto-Generate Credentials
+        // Generates an 8-character random alphanumeric password
+        const generatedPassword = Math.random().toString(36).slice(-8); 
+        const hashedPassword = await bcrypt.hash(generatedPassword, 10);
+        
+        const learnerUsername = data.lrn;
+        const parentUsername = `P-${data.lrn}`;
+
+        await pool.query('BEGIN');
+
+        // 2. Create Learner Login (Role ID 3)
+        const learnerUserResult = await pool.query(
+            `INSERT INTO users (username, password_hash, role_id) VALUES ($1, $2, $3) RETURNING id`,
+            [learnerUsername, hashedPassword, 3]
+        );
+        const learnerUserId = learnerUserResult.rows[0].id;
+
+        // 3. Insert Massive SF1 Profile Details
+        await pool.query(
+            `INSERT INTO learner_profiles (
+                user_id, lrn, birthdate, gender, first_name, middle_name, last_name, email,
+                school_year, grade_level, is_star_eligible, mother_tongue, ethnic_group, religion,
+                house_street, barangay, city, province, father_first, father_middle, father_last,
+                mother_first, mother_middle, mother_last, guardian_name, guardian_relationship, contact_number
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 
+                $19, $20, $21, $22, $23, $24, $25, $26, $27
+            )`,
+            [
+                learnerUserId, data.lrn, data.birthdate, data.gender, data.firstName, data.middleName, data.lastName, data.email,
+                data.schoolYear, data.gradeLevel, data.isStarEligible, data.motherTongue, data.ip, data.religion,
+                data.houseStreet, data.barangay, data.city, data.province, data.fatherFirst, data.fatherMiddle, data.fatherLast,
+                data.motherFirst, data.motherMiddle, data.motherLast, data.guardianName, data.guardianRelation, data.contactNumber
+            ]
+        );
+
+        // 4. Create Parent Login (Role ID 4)
+        const parentUserResult = await pool.query(
+            `INSERT INTO users (username, password_hash, role_id) VALUES ($1, $2, $3) RETURNING id`,
+            [parentUsername, hashedPassword, 4]
+        );
+        const parentUserId = parentUserResult.rows[0].id;
+
+        // 5. Link Parent Profile
+        await pool.query(
+            `INSERT INTO parent_profiles (user_id, linked_lrn) VALUES ($1, $2)`,
+            [parentUserId, data.lrn]
+        );
+
+        await pool.query('COMMIT');
+
+        // TODO: In a production environment, you would trigger Nodemailer here 
+        // to send 'generatedPassword' to 'data.email'.
+
+        // 6. Return the credentials for the Admin Popup
+        res.json({ 
+            success: true, 
+            message: "Learner and Parent accounts created successfully!",
+            credentials: {
+                learnerUsername: learnerUsername,
+                parentUsername: parentUsername,
+                password: generatedPassword,
+                emailSentTo: data.email
+            }
+        });
+
+    } catch (err) {
+        await pool.query('ROLLBACK');
+        console.error(err);
+        if (err.code === '23505') {
+            return res.status(400).json({ error: "LRN already exists in the system." });
+        }
+        res.status(500).json({ error: "Failed to create accounts." });
+    }
+});
+
+// POST: Create Faculty AND auto-generate credentials
+app.post('/api/admin/accounts/faculty', verifyToken, async (req, res) => {
+    try {
+        if (req.user.role_id !== 1) {
+            return res.status(403).json({ error: "Access denied. Admins only." });
+        }
+
+        const data = req.body;
+        
+        // Auto-Generate Credentials
+        const generatedPassword = Math.random().toString(36).slice(-8); 
+        const hashedPassword = await bcrypt.hash(generatedPassword, 10);
+        const facultyUsername = data.employeeNo;
+
+        await pool.query('BEGIN');
+
+        // Create Faculty Login (Role ID 2)
+        const userResult = await pool.query(
+            `INSERT INTO users (username, password_hash, role_id) VALUES ($1, $2, $3) RETURNING id`,
+            [facultyUsername, hashedPassword, 2]
+        );
+        const userId = userResult.rows[0].id;
+
+        // Insert Profile Details
+        await pool.query(
+            `INSERT INTO faculty_profiles (user_id, employee_no, first_name, middle_name, last_name, email) 
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [userId, data.employeeNo, data.firstName, data.middleName, data.lastName, data.email]
+        );
+
+        await pool.query('COMMIT');
+
+        // Return credentials for the Admin Popup
+        res.json({ 
+            success: true, 
+            message: "Faculty account created successfully!",
+            credentials: {
+                learnerUsername: facultyUsername, // Using same key name so the frontend popup can reuse it
+                parentUsername: null,             // Faculty don't have parents
+                password: generatedPassword,
+                emailSentTo: data.email
+            }
+        });
+
+    } catch (err) {
+        await pool.query('ROLLBACK');
+        console.error(err);
+        if (err.code === '23505') {
+            return res.status(400).json({ error: "Employee Number already exists." });
+        }
+        res.status(500).json({ error: "Failed to create faculty account." });
+    }
+});
+
+// POST: Create Faculty AND auto-generate credentials
+app.post('/api/admin/accounts/faculty', verifyToken, async (req, res) => {
+    try {
+        if (req.user.role_id !== 1) {
+            return res.status(403).json({ error: "Access denied. Admins only." });
+        }
+
+        const data = req.body;
+        
+        // Auto-Generate Credentials
+        const generatedPassword = Math.random().toString(36).slice(-8); 
+        const hashedPassword = await bcrypt.hash(generatedPassword, 10);
+        const facultyUsername = data.employeeNo;
+
+        await pool.query('BEGIN');
+
+        // Create Faculty Login (Role ID 2)
+        const userResult = await pool.query(
+            `INSERT INTO users (username, password_hash, role_id) VALUES ($1, $2, $3) RETURNING id`,
+            [facultyUsername, hashedPassword, 2]
+        );
+        const userId = userResult.rows[0].id;
+
+        // Insert Expanded Profile Details
+        await pool.query(
+            `INSERT INTO faculty_profiles (
+                user_id, employee_no, first_name, middle_name, last_name, 
+                email, start_school_year, contact_number
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+                userId, data.employeeNo, data.firstName, data.middleName, data.lastName, 
+                data.email, data.startSchoolYear, data.contactNumber
+            ]
+        );
+
+        await pool.query('COMMIT');
+
+        // Return credentials for the Admin Popup
+        res.json({ 
+            success: true, 
+            message: "Faculty account created successfully!",
+            credentials: {
+                learnerUsername: facultyUsername, // Using same key so popup reuses it
+                parentUsername: null,             
+                password: generatedPassword,
+                emailSentTo: data.email
+            }
+        });
+
+    } catch (err) {
+        await pool.query('ROLLBACK');
+        console.error(err);
+        if (err.code === '23505') {
+            return res.status(400).json({ error: "Employee Number already exists." });
+        }
+        res.status(500).json({ error: "Failed to create faculty account." });
+    }
+});
+
+
+// DELETE an Account (and clean up associated Parent accounts if applicable)
+app.delete('/api/admin/accounts/:id', verifyToken, async (req, res) => {
+    const { id } = req.params; // This is the user_id
+
+    try {
+        // 1. First, figure out WHO we are deleting so we can clean up properly
+        const userCheck = await pool.query(`
+            SELECT u.role_id, l.lrn 
+            FROM users u
+            LEFT JOIN learner_profiles l ON u.id = l.user_id
+            WHERE u.id = $1
+        `, [id]);
+
+        if (userCheck.rows.length === 0) {
+            return res.status(404).json({ error: "Account not found." });
+        }
+
+        const { role_id, lrn } = userCheck.rows[0];
+
+        await pool.query('BEGIN');
+
+        // 2. If it is a Learner (Role 3), hunt down and delete the Parent account first
+        if (role_id === 3 && lrn) {
+            const parentUsername = `P-${lrn}`;
+            // Delete the parent profile
+            await pool.query('DELETE FROM parent_profiles WHERE linked_lrn = $1', [lrn]);
+            // Delete the parent user login
+            await pool.query('DELETE FROM users WHERE username = $1 AND role_id = 4', [parentUsername]);
+        }
+
+        // 3. Now delete the main user's profiles
+        await pool.query('DELETE FROM faculty_profiles WHERE user_id = $1', [id]);
+        await pool.query('DELETE FROM learner_profiles WHERE user_id = $1', [id]);
+        
+        // 4. Finally, delete the main user login
+        await pool.query('DELETE FROM users WHERE id = $1', [id]);
+        
+        await pool.query('COMMIT');
+
+        res.json({ success: true, message: "Account (and any linked profiles) deleted successfully!" });
+    } catch (err) {
+        await pool.query('ROLLBACK');
+        console.error(err);
+        res.status(500).json({ error: "Failed to delete account. They may have dependent records (like grades)." });
     }
 });
 
@@ -346,6 +830,376 @@ app.post('/api/admin/faculty-loads', verifyToken, async (req, res) => {
             return res.status(400).json({ error: "This exact faculty load already exists for this school year." });
         }
         res.status(500).json({ error: "Failed to assign faculty load." });
+    }
+});
+
+// GET: Fetch all active faculty loads for the Admin table
+app.get('/api/admin/faculty-loads', verifyToken, async (req, res) => {
+    try {
+        const settings = await pool.query('SELECT current_school_year FROM system_settings LIMIT 1');
+        const activeYear = settings.rows[0]?.current_school_year;
+
+        const result = await pool.query(`
+            SELECT fl.id, f.first_name, f.last_name, s.subject_name, sec.section_name, sec.grade_level
+            FROM faculty_loads fl
+            JOIN faculty_profiles f ON fl.faculty_id = f.id
+            JOIN subjects s ON fl.subject_id = s.id
+            JOIN sections sec ON fl.section_id = sec.id
+            WHERE fl.school_year = $1
+            ORDER BY sec.grade_level ASC, sec.section_name ASC, s.subject_name ASC
+        `, [activeYear]);
+        
+        res.json({ success: true, loads: result.rows });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Failed to fetch faculty loads." });
+    }
+});
+
+// DELETE: Remove a faculty load
+app.delete('/api/admin/faculty-loads/:id', verifyToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await pool.query('DELETE FROM faculty_loads WHERE id = $1 RETURNING *', [id]);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Load not found." });
+        }
+        res.json({ success: true, message: "Faculty load removed successfully!" });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Failed to remove load. Dependent grades might already exist." });
+    }
+});
+
+// GET: Fetch Grading Weights Setup
+app.get('/api/admin/grading', verifyToken, async (req, res) => {
+    try {
+        const result = await pool.query('SELECT id, subject_name, ww_weight, pt_weight, ex_weight FROM subjects ORDER BY subject_name ASC');
+        res.json({ success: true, subjects: result.rows });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Failed to fetch grading setup." });
+    }
+});
+
+// GET: Fetch teaching loads for the logged-in Faculty
+app.get('/api/faculty/my-classes', verifyToken, async (req, res) => {
+    try {
+        const userId = req.user.id; 
+
+        // FIX: Join faculty_profiles so we match the User Login ID to their Faculty Profile
+        const result = await pool.query(`
+            SELECT fl.id, s.subject_name, sec.section_name, sec.grade_level
+            FROM faculty_loads fl
+            JOIN subjects s ON fl.subject_id = s.id
+            JOIN sections sec ON fl.section_id = sec.id
+            JOIN faculty_profiles fp ON fl.faculty_id = fp.id
+            WHERE fp.user_id = $1
+            ORDER BY sec.grade_level ASC, sec.section_name ASC
+        `, [userId]);
+
+        res.json({ success: true, loads: result.rows });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Failed to fetch teaching loads." });
+    }
+});
+
+// GET: Fetch students, overall grades, individual item scores, AND Subject Weights
+app.get('/api/faculty/gradebook/:loadId', verifyToken, async (req, res) => {
+    try {
+        const { loadId } = req.params;
+        const trimester = req.query.trimester || 1; 
+
+        // Verify ownership AND fetch subject weights at the same time
+        const verify = await pool.query(`
+            SELECT fl.id, s.ww_weight, s.pt_weight, s.ex_weight 
+            FROM faculty_loads fl
+            JOIN faculty_profiles fp ON fl.faculty_id = fp.id
+            JOIN subjects s ON fl.subject_id = s.id
+            WHERE fl.id = $1 AND fp.user_id = $2
+        `, [loadId, req.user.id]);
+        
+        if (verify.rows.length === 0) {
+            return res.status(403).json({ error: "Access denied. You do not teach this class." });
+        }
+
+        const weights = verify.rows[0];
+
+        // Fetch enrolled students and their final grades
+        const result = await pool.query(`
+            SELECT 
+                e.id as enrollment_id,
+                l.first_name, l.last_name, l.lrn,
+                g.initial_grade,
+                g.transmuted_grade
+            FROM enrollments e
+            JOIN learner_profiles l ON e.learner_id = l.id
+            JOIN faculty_loads fl ON e.section_id = fl.section_id AND e.school_year = fl.school_year
+            LEFT JOIN grades g ON e.id = g.enrollment_id AND g.faculty_load_id = fl.id AND g.trimester = $2
+            WHERE fl.id = $1
+            ORDER BY l.last_name ASC, l.first_name ASC
+        `, [loadId, trimester]);
+
+        // Fetch all individual cell scores for this class and trimester
+        const scoresResult = await pool.query(`
+            SELECT ss.enrollment_id, ss.grade_item_id, ss.score
+            FROM student_scores ss
+            JOIN grade_items gi ON ss.grade_item_id = gi.id
+            WHERE gi.faculty_load_id = $1 AND gi.trimester = $2
+        `, [loadId, trimester]);
+
+        res.json({ 
+            success: true, 
+            students: result.rows,
+            itemScores: scoresResult.rows,
+            weights: {
+                ww: weights.ww_weight,
+                pt: weights.pt_weight,
+                ex: weights.ex_weight
+            }
+        });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Failed to fetch gradebook data." });
+    }
+});
+
+// GET: Fetch Dynamic Grade Items (WW, PT, EX columns) for a specific class and trimester
+app.get('/api/faculty/grade-items/:loadId', verifyToken, async (req, res) => {
+    try {
+        const { loadId } = req.params;
+        const trimester = req.query.trimester || 1;
+        
+        const result = await pool.query(`
+            SELECT id, component, item_name, max_score 
+            FROM grade_items 
+            WHERE faculty_load_id = $1 AND trimester = $2
+            ORDER BY component DESC, id ASC
+        `, [loadId, trimester]);
+
+        res.json({ success: true, items: result.rows });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Failed to fetch grade items." });
+    }
+});
+
+app.post('/api/faculty/grade-items', verifyToken, async (req, res) => {
+    const { loadId, trimester, component, name, max } = req.body;
+    try {
+        const result = await pool.query(
+            'INSERT INTO grade_items (faculty_load_id, trimester, component, item_name, max_score) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+            [loadId, trimester, component, name, max]
+        );
+        res.json({ success: true, newItem: result.rows[0] });
+    } catch (err) {
+        res.status(500).json({ error: "Failed to add item." });
+    }
+});
+
+// Utility: Convert Initial Grade to Transmuted Grade (DepEd Standard)
+function getTransmutedGrade(initial) {
+    if (initial >= 99.50) return 100;
+    if (initial >= 98.32) return 99;
+    if (initial >= 97.14) return 98;
+    if (initial >= 95.96) return 97;
+    if (initial >= 94.78) return 96;
+    if (initial >= 93.60) return 95;
+    if (initial >= 92.42) return 94;
+    if (initial >= 91.24) return 93;
+    if (initial >= 90.06) return 92;
+    if (initial >= 88.88) return 91;
+    if (initial >= 87.70) return 90;
+    if (initial >= 86.52) return 89;
+    if (initial >= 85.34) return 88;
+    if (initial >= 84.16) return 87;
+    if (initial >= 82.98) return 86;
+    if (initial >= 81.80) return 85;
+    if (initial >= 80.62) return 84;
+    if (initial >= 79.44) return 83;
+    if (initial >= 78.26) return 82;
+    if (initial >= 77.08) return 81;
+    if (initial >= 75.90) return 80;
+    if (initial >= 74.72) return 79;
+    if (initial >= 73.54) return 78;
+    if (initial >= 72.36) return 77;
+    if (initial >= 71.18) return 76;
+    if (initial >= 70.00) return 75;
+    if (initial >= 65.34) return 74;
+    if (initial >= 60.67) return 73;
+    if (initial >= 56.01) return 72;
+    if (initial >= 51.34) return 71;
+    if (initial >= 46.67) return 70;
+    if (initial >= 42.01) return 69;
+    if (initial >= 37.34) return 68;
+    if (initial >= 32.68) return 67;
+    if (initial >= 28.01) return 66;
+    if (initial >= 23.35) return 65;
+    if (initial >= 18.68) return 64;
+    if (initial >= 14.01) return 63;
+    if (initial >= 9.35) return 62;
+    if (initial >= 4.68) return 61;
+    return 60; // For 0.00 - 4.67
+}
+
+app.post('/api/faculty/save-grades', verifyToken, async (req, res) => {
+    const { loadId, trimester, scores } = req.body;
+
+    try {
+        // 1. Save all individual cell scores using an Upsert (Insert or Update)
+        for (const s of scores) {
+            await pool.query(`
+                INSERT INTO student_scores (enrollment_id, grade_item_id, score) 
+                VALUES ($1, $2, $3) 
+                ON CONFLICT (grade_item_id, enrollment_id) 
+                DO UPDATE SET score = EXCLUDED.score
+            `, [s.enrollment_id, s.grade_item_id, s.score]);
+        }
+
+        // 2. Fetch subject weights for this class
+        const subjectInfo = await pool.query(`
+            SELECT s.ww_weight, s.pt_weight, s.ex_weight 
+            FROM subjects s
+            JOIN faculty_loads fl ON s.id = fl.subject_id
+            WHERE fl.id = $1
+        `, [loadId]);
+        
+        if (subjectInfo.rows.length === 0) throw new Error("Subject weights not found.");
+        const { ww_weight, pt_weight, ex_weight } = subjectInfo.rows[0];
+
+        // 3. Perform the Math Engine calculation directly in PostgreSQL
+        // This calculates the (Sum of Scores / Sum of Max Scores) * Weight for each component
+        const computeQuery = await pool.query(`
+            WITH StudentComponentTotals AS (
+                SELECT 
+                    ss.enrollment_id,
+                    gi.component,
+                    SUM(ss.score) as total_score,
+                    SUM(gi.max_score) as total_max
+                FROM student_scores ss
+                JOIN grade_items gi ON ss.grade_item_id = gi.id
+                WHERE gi.faculty_load_id = $1 AND gi.trimester = $2
+                GROUP BY ss.enrollment_id, gi.component
+            )
+            SELECT 
+                enrollment_id,
+                MAX(CASE WHEN component = 'WW' THEN (total_score / NULLIF(total_max, 0)) * $3 ELSE 0 END) as ww_ws,
+                MAX(CASE WHEN component = 'PT' THEN (total_score / NULLIF(total_max, 0)) * $4 ELSE 0 END) as pt_ws,
+                MAX(CASE WHEN component = 'EX' THEN (total_score / NULLIF(total_max, 0)) * $5 ELSE 0 END) as ex_ws
+            FROM StudentComponentTotals
+            GROUP BY enrollment_id
+        `, [loadId, trimester, ww_weight, pt_weight, ex_weight]);
+
+        // 4. Calculate Final Initial Grade, Transmute, and Save to the 'grades' table
+        for (const student of computeQuery.rows) {
+            // Calculate Initial Grade (WS out of 100)
+            const initialGrade = Number(student.ww_ws) + Number(student.pt_ws) + Number(student.ex_ws);
+            
+            // Convert using your Transmutation Table
+            const transmuted = getTransmutedGrade(initialGrade);
+
+            // Save final overall grades
+            await pool.query(`
+                INSERT INTO grades (enrollment_id, faculty_load_id, trimester, initial_grade, transmuted_grade)
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (enrollment_id, faculty_load_id, trimester) 
+                DO UPDATE SET initial_grade = EXCLUDED.initial_grade, transmuted_grade = EXCLUDED.transmuted_grade
+            `, [student.enrollment_id, loadId, trimester, initialGrade, transmuted]);
+        }
+
+        res.json({ success: true, message: "Grades successfully saved and computed!" });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Failed to save and compute grades." });
+    }
+});
+
+// ==========================================
+// ADMIN: STUDENT ENROLLMENT & SECTIONING
+// ==========================================
+
+// GET: Fetch unassigned learners for a specific grade level
+app.get('/api/admin/enrollments/unassigned', verifyToken, async (req, res) => {
+    try {
+        const { grade_level } = req.query;
+        // Fetch the dynamic active school year from settings
+        const settings = await pool.query('SELECT current_school_year FROM system_settings LIMIT 1');
+        const activeYear = settings.rows[0]?.current_school_year;
+
+        // Find learners of this grade who DO NOT have a section in the active year
+        const result = await pool.query(`
+            SELECT id, lrn, first_name, last_name, gender 
+            FROM learner_profiles 
+            WHERE grade_level = $1 
+            AND id NOT IN (
+                SELECT learner_id FROM enrollments WHERE school_year = $2
+            )
+            ORDER BY last_name ASC, first_name ASC
+        `, [grade_level, activeYear]);
+        
+        res.json({ success: true, learners: result.rows, activeYear });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Failed to fetch unassigned learners." });
+    }
+});
+
+// GET: Fetch learners currently enrolled in a specific section
+app.get('/api/admin/enrollments/section/:sectionId', verifyToken, async (req, res) => {
+    try {
+        const { sectionId } = req.params;
+        const settings = await pool.query('SELECT current_school_year FROM system_settings LIMIT 1');
+        const activeYear = settings.rows[0]?.current_school_year;
+
+        const result = await pool.query(`
+            SELECT e.id as enrollment_id, l.id as learner_id, l.lrn, l.first_name, l.last_name, l.gender 
+            FROM enrollments e
+            JOIN learner_profiles l ON e.learner_id = l.id
+            WHERE e.section_id = $1 AND e.school_year = $2
+            ORDER BY l.gender DESC, l.last_name ASC
+        `, [sectionId, activeYear]);
+        
+        res.json({ success: true, enrolled: result.rows });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Failed to fetch enrolled learners." });
+    }
+});
+
+// POST: Enroll a learner into a section
+app.post('/api/admin/enrollments', verifyToken, async (req, res) => {
+    try {
+        const { learner_id, section_id } = req.body;
+        const settings = await pool.query('SELECT current_school_year FROM system_settings LIMIT 1');
+        const activeYear = settings.rows[0]?.current_school_year;
+
+        await pool.query(`
+            INSERT INTO enrollments (learner_id, section_id, school_year) 
+            VALUES ($1, $2, $3)
+        `, [learner_id, section_id, activeYear]);
+
+        res.json({ success: true, message: "Learner officially enrolled!" });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Failed to enroll learner." });
+    }
+});
+
+// DELETE: Remove a learner from a section
+app.delete('/api/admin/enrollments/:id', verifyToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await pool.query('DELETE FROM enrollments WHERE id = $1', [id]);
+        res.json({ success: true, message: "Learner removed from section." });
+    } catch (err) {
+        console.error(err);
+        // Error 23503 means they already have grades tied to this enrollment
+        if (err.code === '23503') {
+            return res.status(400).json({ error: "Cannot remove: This student already has grades recorded in this section." });
+        }
+        res.status(500).json({ error: "Failed to remove learner." });
     }
 });
 
