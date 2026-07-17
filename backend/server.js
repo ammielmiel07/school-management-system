@@ -14,6 +14,16 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const ExcelJS = require('exceljs');
+const nodemailer = require('nodemailer');
+
+// Set up the email transporter
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: 'thelasalyans.capstone@gmail.com', 
+        pass: 'aial dhox vvde fbtm'   
+    }
+});
 
 // ==========================================
 //        CONFIGURATION & UTILITIES
@@ -632,8 +642,13 @@ app.get('/api/admin/accounts', verifyToken, requireRole(ROLES.ADMIN), async (req
 app.post('/api/admin/accounts/learner', verifyToken, requireRole(ROLES.ADMIN), async (req, res) => {
     try {
         const data = req.body;
-        const generatedPassword = Math.random().toString(36).slice(-8); 
-        const hashedPassword = await bcrypt.hash(generatedPassword, 10);
+        
+        // Generate UNIQUE passwords for Learner and Parent to match your design
+        const learnerPassword = Math.random().toString(36).slice(-10) + "Aa1!"; 
+        const parentPassword = Math.random().toString(36).slice(-10) + "Bb2@"; 
+        
+        const hashedLearnerPassword = await bcrypt.hash(learnerPassword, 10);
+        const hashedParentPassword = await bcrypt.hash(parentPassword, 10);
         
         const learnerUsername = data.lrn;
         const parentUsername = `P-${data.lrn}`;
@@ -643,12 +658,12 @@ app.post('/api/admin/accounts/learner', verifyToken, requireRole(ROLES.ADMIN), a
         // Create Learner Login
         const learnerUserResult = await pool.query(
             `INSERT INTO users (username, password_hash, role_id) VALUES ($1, $2, $3) RETURNING id`,
-            [learnerUsername, hashedPassword, 3]
+            [learnerUsername, hashedLearnerPassword, 3]
         );
         const learnerUserId = learnerUserResult.rows[0].id;
 
-        // Insert SF1 Profile Details
-        await pool.query(
+        // Insert SF1 Profile Details 
+        const learnerProfileResult = await pool.query(
             `INSERT INTO learner_profiles (
                 user_id, lrn, birthdate, gender, first_name, middle_name, last_name, email,
                 school_year, grade_level, is_star_eligible, mother_tongue, ethnic_group, religion,
@@ -657,7 +672,7 @@ app.post('/api/admin/accounts/learner', verifyToken, requireRole(ROLES.ADMIN), a
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 
                 $19, $20, $21, $22, $23, $24, $25, $26, $27
-            )`,
+            ) RETURNING id`,
             [
                 learnerUserId, data.lrn, data.birthdate, data.gender, data.firstName, data.middleName, data.lastName, data.email,
                 data.schoolYear, data.gradeLevel, data.isStarEligible, data.motherTongue, data.ip, data.religion,
@@ -665,11 +680,28 @@ app.post('/api/admin/accounts/learner', verifyToken, requireRole(ROLES.ADMIN), a
                 data.motherFirst, data.motherMiddle, data.motherLast, data.guardianName, data.guardianRelation, data.contactNumber
             ]
         );
+        const learnerProfileId = learnerProfileResult.rows[0].id;
+
+        // Auto-assign Star Section (if applicable)
+        if (data.isStarEligible) {
+            const starSectionResult = await pool.query(
+                `SELECT id FROM sections WHERE grade_level = $1 AND is_star_section = TRUE`,
+                [data.gradeLevel]
+            );
+
+            if (starSectionResult.rows.length > 0) {
+                const starSectionId = starSectionResult.rows[0].id;
+                await pool.query(
+                    `INSERT INTO enrollments (learner_id, section_id, school_year) VALUES ($1, $2, $3)`,
+                    [learnerProfileId, starSectionId, data.schoolYear]
+                );
+            }
+        }
 
         // Create Parent Login
         const parentUserResult = await pool.query(
             `INSERT INTO users (username, password_hash, role_id) VALUES ($1, $2, $3) RETURNING id`,
-            [parentUsername, hashedPassword, 4]
+            [parentUsername, hashedParentPassword, 4]
         );
         const parentUserId = parentUserResult.rows[0].id;
 
@@ -681,15 +713,57 @@ app.post('/api/admin/accounts/learner', verifyToken, requireRole(ROLES.ADMIN), a
 
         await pool.query('COMMIT');
 
+        // --- NEW LOGIC: SEND HTML EMAIL ---
+        const mailOptions = {
+            from: '"JLT Dev Team" <thelasalyans.capstone@gmail.com>', // Sender display name
+            to: data.email, // Sent to the learner's email from the frontend form
+            subject: 'Temporary Credentials for Learner & Parent | POMS',
+            html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+                <div style="background-color: #990000; padding: 20px; border-radius: 8px 8px 0 0;">
+                    <h2 style="color: white; margin: 0; font-size: 20px;">Learner & Parent Credentials</h2>
+                </div>
+                
+                <div style="background-color: #ffffff; padding: 30px; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 8px 8px;">
+                    <p style="margin-top: 0;">Greetings!</p>
+                    <p>Your learner & parent accounts have been created. Below are the temporary credentials for both accounts:</p>
+                    
+                    <div style="background-color: #f9f9fb; border: 1px solid #dcdcdc; border-radius: 6px; padding: 15px; margin-bottom: 15px;">
+                        <p style="margin: 0 0 10px 0; font-weight: bold; font-size: 15px;">Learner Account</p>
+                        <p style="margin: 5px 0;"><strong>Username:</strong> ${learnerUsername}</p>
+                        <p style="margin: 5px 0;"><strong>Temporary Password:</strong> ${learnerPassword}</p>
+                    </div>
+
+                    <div style="background-color: #f9f9fb; border: 1px solid #dcdcdc; border-radius: 6px; padding: 15px; margin-bottom: 25px;">
+                        <p style="margin: 0 0 10px 0; font-weight: bold; font-size: 15px;">Parent Account</p>
+                        <p style="margin: 5px 0;"><strong>Username:</strong> ${parentUsername}</p>
+                        <p style="margin: 5px 0;"><strong>Temporary Password:</strong> ${parentPassword}</p>
+                    </div>
+
+                    <p style="font-size: 14px;">Please log in to your accounts and change the passwords immediately for security.<br/>Thank you for your cooperation!</p>
+                    <p style="font-size: 14px; font-style: italic; color: #555;">JLT Dev Team</p>
+                    
+                    <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0 15px 0;" />
+                    <p style="font-size: 11px; text-align: center; color: #888; margin: 0;">
+                        This is an automated notification from POMS (PDFMNHS Online Management System).<br/>Please do not reply to this email.
+                    </p>
+                </div>
+            </div>
+            `
+        };
+
+        // Send the email asynchronously 
+        transporter.sendMail(mailOptions, (error, info) => {
+            if (error) {
+                console.error("Email failed to send:", error);
+            } else {
+                console.log("Email sent successfully: " + info.response);
+            }
+        });
+
         res.json({ 
             success: true, 
-            message: "Learner and Parent accounts created successfully!",
-            credentials: {
-                learnerUsername: learnerUsername,
-                parentUsername: parentUsername,
-                password: generatedPassword,
-                emailSentTo: data.email
-            }
+            message: "Learner and Parent accounts created! Credentials have been emailed.",
         });
 
     } catch (err) {
@@ -703,7 +777,8 @@ app.post('/api/admin/accounts/learner', verifyToken, requireRole(ROLES.ADMIN), a
 app.post('/api/admin/accounts/faculty', verifyToken, requireRole(ROLES.ADMIN), async (req, res) => {
     try {
         const data = req.body;
-        const generatedPassword = Math.random().toString(36).slice(-8); 
+        // Generating a secure password to match the format used for learners
+        const generatedPassword = Math.random().toString(36).slice(-10) + "Cc3!"; 
         const hashedPassword = await bcrypt.hash(generatedPassword, 10);
         const facultyUsername = data.employeeNo;
 
@@ -725,15 +800,51 @@ app.post('/api/admin/accounts/faculty', verifyToken, requireRole(ROLES.ADMIN), a
 
         await pool.query('COMMIT');
 
+        // --- NEW LOGIC: SEND HTML EMAIL FOR FACULTY ---
+        const mailOptions = {
+            from: '"JLT Dev Team" <thelasalyans.capstone@gmail.com>', 
+            to: data.email, 
+            subject: 'Temporary Credentials for Faculty | POMS',
+            html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+                <div style="background-color: #990000; padding: 20px; border-radius: 8px 8px 0 0;">
+                    <h2 style="color: white; margin: 0; font-size: 20px;">Faculty Credentials</h2>
+                </div>
+                
+                <div style="background-color: #ffffff; padding: 30px; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 8px 8px;">
+                    <p style="margin-top: 0;">Greetings!</p>
+                    <p>Your faculty account has been created. Below are your temporary credentials:</p>
+                    
+                    <div style="background-color: #f9f9fb; border: 1px solid #dcdcdc; border-radius: 6px; padding: 15px; margin-bottom: 25px;">
+                        <p style="margin: 0 0 10px 0; font-weight: bold; font-size: 15px;">Faculty Account</p>
+                        <p style="margin: 5px 0;"><strong>Username:</strong> ${facultyUsername}</p>
+                        <p style="margin: 5px 0;"><strong>Temporary Password:</strong> ${generatedPassword}</p>
+                    </div>
+
+                    <p style="font-size: 14px;">Please log in to your account and change the password immediately for security.<br/>Thank you for your cooperation!</p>
+                    <p style="font-size: 14px; font-style: italic; color: #555;">JLT Dev Team</p>
+                    
+                    <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0 15px 0;" />
+                    <p style="font-size: 11px; text-align: center; color: #888; margin: 0;">
+                        This is an automated notification from POMS (PDFMNHS Online Management System).<br/>Please do not reply to this email.
+                    </p>
+                </div>
+            </div>
+            `
+        };
+
+        // Send the email asynchronously 
+        transporter.sendMail(mailOptions, (error, info) => {
+            if (error) {
+                console.error("Faculty email failed to send:", error);
+            } else {
+                console.log("Faculty email sent successfully: " + info.response);
+            }
+        });
+
         res.json({ 
             success: true, 
-            message: "Faculty account created successfully!",
-            credentials: {
-                learnerUsername: facultyUsername, 
-                parentUsername: null,              
-                password: generatedPassword,
-                emailSentTo: data.email
-            }
+            message: "Faculty account created successfully! Credentials have been emailed.",
         });
 
     } catch (err) {
@@ -754,7 +865,8 @@ app.put('/api/admin/accounts/:id', verifyToken, requireRole(ROLES.ADMIN), async 
         if (data.lrn !== undefined) {
             await pool.query('UPDATE users SET username = $1 WHERE id = $2', [data.lrn, id]);
             
-            await pool.query(
+            // 1. Update Profile and capture the profile ID (Added RETURNING id)
+            const profileUpdate = await pool.query(
                 `UPDATE learner_profiles 
                  SET lrn = $1, first_name = $2, middle_name = $3, last_name = $4, email = $5,
                      birthdate = $6, gender = $7, school_year = $8, grade_level = $9, is_star_eligible = $10,
@@ -762,7 +874,8 @@ app.put('/api/admin/accounts/:id', verifyToken, requireRole(ROLES.ADMIN), async 
                      barangay = $15, city = $16, province = $17, father_first = $18, father_middle = $19,
                      father_last = $20, mother_first = $21, mother_middle = $22, mother_last = $23,
                      guardian_name = $24, guardian_relationship = $25, contact_number = $26
-                 WHERE user_id = $27`,
+                 WHERE user_id = $27
+                 RETURNING id`,
                 [
                     data.lrn, data.firstName, data.middleName, data.lastName, data.email,
                     data.birthdate, data.gender, data.schoolYear, data.gradeLevel, data.isStarEligible,
@@ -772,7 +885,51 @@ app.put('/api/admin/accounts/:id', verifyToken, requireRole(ROLES.ADMIN), async 
                     data.guardianRelation, data.contactNumber, id
                 ]
             );
+            
+            const learnerProfileId = profileUpdate.rows[0].id;
 
+            // --- NEW LOGIC: DYNAMIC STAR SECTION HANDLING ---
+            const starSectionResult = await pool.query(
+                `SELECT id FROM sections WHERE grade_level = $1 AND is_star_section = TRUE`,
+                [data.gradeLevel]
+            );
+
+            if (starSectionResult.rows.length > 0) {
+                const starSectionId = starSectionResult.rows[0].id;
+
+                if (data.isStarEligible) {
+                    // Check if they are already enrolled somewhere for this school year
+                    const currentEnrollment = await pool.query(
+                        `SELECT id, section_id FROM enrollments WHERE learner_id = $1 AND school_year = $2`,
+                        [learnerProfileId, data.schoolYear]
+                    );
+
+                    if (currentEnrollment.rows.length > 0) {
+                        // If enrolled in a DIFFERENT section, move them to the Star Section
+                        if (currentEnrollment.rows[0].section_id !== starSectionId) {
+                            await pool.query(
+                                `UPDATE enrollments SET section_id = $1 WHERE id = $2`,
+                                [starSectionId, currentEnrollment.rows[0].id]
+                            );
+                        }
+                    } else {
+                        // Not enrolled yet, so create a new enrollment in the Star Section
+                        await pool.query(
+                            `INSERT INTO enrollments (learner_id, section_id, school_year) VALUES ($1, $2, $3)`,
+                            [learnerProfileId, starSectionId, data.schoolYear]
+                        );
+                    }
+                } else {
+                    // If they are NO LONGER star eligible, check if they are currently sitting in the Star Section
+                    // If they are, remove them so the admin can reassign them manually.
+                    await pool.query(
+                        `DELETE FROM enrollments WHERE learner_id = $1 AND section_id = $2 AND school_year = $3`,
+                        [learnerProfileId, starSectionId, data.schoolYear]
+                    );
+                }
+            }
+
+            // Update Parent Login and Profile Links
             const newParentUsername = `P-${data.lrn}`;
             await pool.query(
                 `UPDATE users SET username = $1 WHERE id = (SELECT user_id FROM parent_profiles WHERE linked_lrn = $2 LIMIT 1)`,

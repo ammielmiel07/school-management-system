@@ -6,7 +6,16 @@ interface Section {
   id: number;
   section_name: string;
   grade_level: string;
-  is_star_section: boolean; // Added property
+  is_star_section: boolean;
+}
+
+interface EnrolledStudent {
+  enrollment_id: number;
+  learner_id: number;
+  lrn: string;
+  first_name: string;
+  last_name: string;
+  gender: string;
 }
 
 export default function AdminSections() {
@@ -20,6 +29,12 @@ export default function AdminSections() {
   // Edit State
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editSection, setEditSection] = useState<Section | null>(null);
+
+  // View Students State
+  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const [viewingSection, setViewingSection] = useState<Section | null>(null);
+  const [enrolledStudents, setEnrolledStudents] = useState<EnrolledStudent[]>([]);
+  const [studentsLoading, setStudentsLoading] = useState(false);
 
   const fetchSections = async () => {
     setLoading(true);
@@ -58,7 +73,8 @@ export default function AdminSections() {
         setNewSection({ section_name: "", grade_level: "", is_star_section: false });
         fetchSections();
       } else {
-        alert("Failed to add section");
+        const data = await res.json();
+        alert(data.error || "Failed to add section");
       }
     } catch (err) {
       alert("Server error.");
@@ -120,8 +136,34 @@ export default function AdminSections() {
     }
   };
 
+  // Handle View Students
+  const openViewModal = async (section: Section) => {
+    setViewingSection(section);
+    setIsViewModalOpen(true);
+    setStudentsLoading(true);
+    setEnrolledStudents([]);
+
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`http://localhost:5000/api/admin/enrollments/section/${section.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setEnrolledStudents(data.enrolled || []);
+      } else {
+        alert(data.error || "Failed to load students.");
+      }
+    } catch (err) {
+      console.error("Failed to fetch students");
+      alert("Server error while fetching students.");
+    } finally {
+      setStudentsLoading(false);
+    }
+  };
+
   return (
-    <div className="p-8 max-w-5xl mx-auto">
+    <div className="p-8 max-w-6xl mx-auto">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold text-gray-800">Manage Sections</h1>
         <button 
@@ -152,7 +194,7 @@ export default function AdminSections() {
               ) : (
                 sections.map(sec => (
                   <tr key={sec.id} className="border-b border-gray-200 hover:bg-gray-50">
-                    <td className="p-4 font-semibold text-gray-800">{sec.grade_level}</td>
+                    <td className="p-4 font-semibold text-gray-800">Grade {sec.grade_level}</td>
                     <td className="p-4 text-gray-600 flex items-center gap-2">
                       {sec.section_name}
                       {sec.is_star_section && (
@@ -162,18 +204,26 @@ export default function AdminSections() {
                       )}
                     </td>
                     <td className="p-4 text-center">
-                      <button 
-                        onClick={() => openEditModal(sec)}
-                        className="text-blue-600 hover:text-blue-800 font-semibold mr-4 px-2 py-1 border border-blue-600 rounded"
-                      >
-                        Edit
-                      </button>
-                      <button 
-                        onClick={() => handleDelete(sec.id)}
-                        className="text-red-600 hover:text-red-800 font-semibold px-2 py-1 border border-red-600 rounded"
-                      >
-                        Delete
-                      </button>
+                      <div className="flex items-center justify-center gap-2">
+                        <button 
+                          onClick={() => openViewModal(sec)}
+                          className="text-green-700 hover:text-green-900 font-semibold px-3 py-1 border border-green-700 rounded transition"
+                        >
+                          View Students
+                        </button>
+                        <button 
+                          onClick={() => openEditModal(sec)}
+                          className="text-blue-600 hover:text-blue-800 font-semibold px-3 py-1 border border-blue-600 rounded transition"
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(sec.id)}
+                          className="text-red-600 hover:text-red-800 font-semibold px-3 py-1 border border-red-600 rounded transition"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -182,6 +232,68 @@ export default function AdminSections() {
           </table>
         )}
       </div>
+
+      {/* VIEW STUDENTS MODAL */}
+      {isViewModalOpen && viewingSection && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl flex flex-col max-h-[80vh] overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-white shrink-0">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">
+                  {viewingSection.section_name} 
+                  {viewingSection.is_star_section && <span className="ml-2 text-lg">⭐</span>}
+                </h2>
+                <p className="text-sm text-gray-500 font-semibold mt-1">Grade {viewingSection.grade_level} Roster</p>
+              </div>
+              <button onClick={() => setIsViewModalOpen(false)} className="text-gray-500 hover:text-gray-800 font-bold text-2xl">&times;</button>
+            </div>
+            
+            <div className="p-0 overflow-y-auto flex-1 bg-gray-50">
+              {studentsLoading ? (
+                <p className="p-8 text-center text-gray-500">Loading student roster...</p>
+              ) : enrolledStudents.length === 0 ? (
+                <div className="p-12 text-center">
+                  <p className="text-gray-500 text-lg">No students are currently enrolled in this section.</p>
+                </div>
+              ) : (
+                <table className="w-full text-left border-collapse bg-white">
+                  <thead>
+                    <tr className="bg-gray-100 text-gray-700 text-sm font-bold uppercase tracking-wider border-b border-gray-200">
+                      <th className="p-4">LRN</th>
+                      <th className="p-4">Student Name</th>
+                      <th className="p-4">Gender</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {enrolledStudents.map((student, idx) => (
+                      <tr key={student.enrollment_id} className={`border-b border-gray-100 hover:bg-blue-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+                        <td className="p-4 text-gray-600 font-mono text-sm">{student.lrn}</td>
+                        <td className="p-4 font-semibold text-gray-800">
+                          {student.last_name}, {student.first_name}
+                        </td>
+                        <td className="p-4 text-gray-600">
+                          <span className={`px-2 py-1 text-xs font-bold rounded ${student.gender === 'Male' ? 'bg-blue-100 text-blue-800' : student.gender === 'Female' ? 'bg-pink-100 text-pink-800' : 'bg-gray-100 text-gray-800'}`}>
+                            {student.gender}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-200 bg-white flex justify-end shrink-0">
+              <button 
+                onClick={() => setIsViewModalOpen(false)}
+                className="px-6 py-2 bg-gray-800 text-white rounded font-bold hover:bg-gray-900 transition"
+              >
+                Close Window
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ADD MODAL */}
       {isAddModalOpen && (

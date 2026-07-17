@@ -29,7 +29,11 @@ export default function FacultyLayout({ children }: { children: React.ReactNode 
       <aside className="w-64 bg-[#3e0f0f] text-white flex flex-col">
         <div className="p-6 text-center border-b border-[#5D1919]">
           <div className="w-16 h-16 bg-white rounded-full mx-auto flex items-center justify-center mb-4">
-            <span className="text-[#3e0f0f] font-bold">LOGO</span>
+            <img 
+                src="/Prudencia-Logo.png" 
+                alt="School Logo" 
+                className="w-full h-full object-contain p-1" 
+            />
           </div>
           <h2 className="font-bold text-lg tracking-wider uppercase">Faculty Portal</h2>
         </div>

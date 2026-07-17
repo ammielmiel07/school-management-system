@@ -33,7 +33,6 @@ export default function LearnerLayout({ children }: { children: React.ReactNode 
           </div>
           <h2 className="font-bold text-lg tracking-wider uppercase">Learner Portal</h2>
         </div>
-
         <nav className="flex-1 px-4 py-6 space-y-2">
           <div className="text-xs font-semibold text-red-300 uppercase tracking-wider mb-2 mt-4">Menu</div>
           

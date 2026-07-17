@@ -29,9 +29,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         
         {/* School Logo / Branding Area */}
         <div className="flex flex-col items-center justify-center p-6 border-b border-red-900">
-          <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mb-3">
-             {/* Placeholder for the actual school logo image */}
-            <span className="text-red-900 font-bold text-xl">LOGO</span>
+          <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mb-3 overflow-hidden">
+            <img 
+                src="/Prudencia-Logo.png" 
+                alt="School Logo" 
+                className="w-full h-full object-contain p-1" 
+            />
           </div>
           <h2 className="text-white font-bold text-lg tracking-wider">ADMIN</h2>
         </div>
