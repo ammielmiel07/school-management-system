@@ -10,6 +10,11 @@ interface SchoolEvent {
   description: string;
 }
 
+interface MonthlySummary {
+  month_name: string;
+  total_days: number;
+}
+
 export default function ManageCalendar() {
   // --- TAB STATE ---
   const [activeTab, setActiveTab] = useState<"events" | "schooldays">("events");
@@ -29,14 +34,16 @@ export default function ManageCalendar() {
   // ==========================================
   //         STATE: SCHOOL DAYS (SF2)
   // ==========================================
-  // UPDATE 1: Added TypeScript definition to allow string or number, and start totalDays as empty
   const [daysForm, setDaysForm] = useState<{schoolYear: string, monthName: string, totalDays: number | string}>({
-    schoolYear: '2024-2025',
+    schoolYear: '2026-2027',
     monthName: 'August',
     totalDays: '' 
   });
   const [daysMessage, setDaysMessage] = useState('');
   const [daysSubmitting, setDaysSubmitting] = useState(false);
+  
+  // NEW: State to hold the 12-month summary
+  const [yearlySummary, setYearlySummary] = useState<MonthlySummary[]>([]);
 
   const months = [
     "August", "September", "October", "November", "December", 
@@ -127,9 +134,23 @@ export default function ManageCalendar() {
   //         LOGIC: SCHOOL DAYS (SF2)
   // ==========================================
 
-  // UPDATE 2: Fetch the saved days automatically when month/year changes
+  // NEW: Helper function to fetch the full 12 months at once
+  const fetchYearlySummary = async (year: string) => {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`http://localhost:5000/api/admin/school-days?schoolYear=${year}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) setYearlySummary(data.calendar || []);
+    } catch (err) {
+      console.error("Failed to fetch summary", err);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === "schooldays") {
+      // 1. Fetch the data for the specific input box
       const fetchMonthDays = async () => {
         try {
           const token = localStorage.getItem("token");
@@ -152,6 +173,13 @@ export default function ManageCalendar() {
     }
   }, [daysForm.schoolYear, daysForm.monthName, activeTab]);
 
+  // Fetch the 12-month summary whenever the school year changes or tab opens
+  useEffect(() => {
+    if (activeTab === "schooldays" && daysForm.schoolYear) {
+      fetchYearlySummary(daysForm.schoolYear);
+    }
+  }, [daysForm.schoolYear, activeTab]);
+
   const handleSaveDays = async (e: React.FormEvent) => {
     e.preventDefault();
     setDaysSubmitting(true);
@@ -171,6 +199,8 @@ export default function ManageCalendar() {
       const data = await res.json();
       if (res.ok) {
         setDaysMessage('School days successfully updated!');
+        // Instantly refresh the summary table to show the newly saved value
+        fetchYearlySummary(daysForm.schoolYear);
       } else {
         setDaysMessage(data.error || 'Failed to update calendar.');
       }
@@ -181,6 +211,9 @@ export default function ManageCalendar() {
     }
   };
   
+  // Calculate total days for the entire year
+  const totalYearlyDays = yearlySummary.reduce((sum, item) => sum + Number(item.total_days), 0);
+
   // ==========================================
   //                 RENDER
   // ==========================================
@@ -291,60 +324,110 @@ export default function ManageCalendar() {
       {/* TAB 2: MONTHLY SCHOOL DAYS (For SF2)             */}
       {/* ------------------------------------------------ */}
       {activeTab === "schooldays" && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 max-w-lg">
-          <div className="mb-6 border-b pb-4">
-            <h2 className="text-2xl font-bold text-gray-800">Set Monthly School Days</h2>
-            <p className="text-gray-600 mt-1 text-sm">Configure the total number of valid school days per month. This data is required for generating the School Form 2 (SF2).</p>
-          </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
           
-          {daysMessage && (
-            <div className={`mb-4 p-3 rounded font-semibold ${daysMessage.includes('error') || daysMessage.includes('Failed') ? 'bg-red-50 text-red-700 border-l-4 border-red-500' : 'bg-green-50 text-green-700 border-l-4 border-green-500'}`}>
-              {daysMessage}
-            </div>
-          )}
-          
-          <form onSubmit={handleSaveDays} className="space-y-4">
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">School Year</label>
-              <input 
-                type="text" 
-                value={daysForm.schoolYear}
-                onChange={(e) => setDaysForm({...daysForm, schoolYear: e.target.value})}
-                className="w-full border border-gray-300 p-2 rounded focus:outline-none focus:border-[#5D1919]" 
-              />
+          {/* LEFT SIDE: Data Entry Form */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="mb-6 border-b pb-4">
+              <h2 className="text-2xl font-bold text-gray-800">Set Monthly School Days</h2>
+              <p className="text-gray-600 mt-1 text-sm">Configure the total number of valid school days per month. This data is required for generating the School Form 2 (SF2).</p>
             </div>
             
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">Month</label>
-              <select 
-                value={daysForm.monthName}
-                onChange={(e) => setDaysForm({...daysForm, monthName: e.target.value})}
-                className="w-full border border-gray-300 p-2 rounded focus:outline-none focus:border-[#5D1919] bg-white"
+            {daysMessage && (
+              <div className={`mb-4 p-3 rounded font-semibold ${daysMessage.includes('error') || daysMessage.includes('Failed') ? 'bg-red-50 text-red-700 border-l-4 border-red-500' : 'bg-green-50 text-green-700 border-l-4 border-green-500'}`}>
+                {daysMessage}
+              </div>
+            )}
+            
+            <form onSubmit={handleSaveDays} className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">School Year</label>
+                <input 
+                  type="text" 
+                  value={daysForm.schoolYear}
+                  onChange={(e) => setDaysForm({...daysForm, schoolYear: e.target.value})}
+                  className="w-full border border-gray-300 p-2 rounded focus:outline-none focus:border-[#5D1919]" 
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Month</label>
+                <select 
+                  value={daysForm.monthName}
+                  onChange={(e) => setDaysForm({...daysForm, monthName: e.target.value})}
+                  className="w-full border border-gray-300 p-2 rounded focus:outline-none focus:border-[#5D1919] bg-white"
+                >
+                  {months.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Total School Days</label>
+                <input 
+                  type="number" 
+                  min="1" max="31"
+                  value={daysForm.totalDays}
+                  onChange={(e) => setDaysForm({...daysForm, totalDays: e.target.value === '' ? '' : parseInt(e.target.value)})}
+                  className="w-full border border-gray-300 p-2 rounded focus:outline-none focus:border-[#5D1919]" 
+                />
+              </div>
+
+              <button 
+                type="submit" 
+                disabled={daysSubmitting}
+                className="w-full bg-[#5D1919] text-white font-bold py-2 rounded hover:bg-[#3e0f0f] transition disabled:opacity-70 mt-4"
               >
-                {months.map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
+                {daysSubmitting ? "Saving..." : "Save Calendar Setup"}
+              </button>
+            </form>
+          </div>
+
+          {/* RIGHT SIDE: 12-Month Summary Table */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+             <div className="mb-4 border-b pb-4 flex justify-between items-end">
+              <div>
+                <h2 className="text-xl font-bold text-gray-800">12-Month Summary</h2>
+                <p className="text-gray-500 text-sm mt-1">For S.Y. {daysForm.schoolYear}</p>
+              </div>
+              <div className="text-right">
+                <span className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Total Year</span>
+                <span className="text-2xl font-black text-[#5D1919]">{totalYearlyDays || "-"}</span>
+              </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">Total School Days</label>
-              {/* UPDATE 3: Fixed the onChange to safely handle empty string when the user deletes the value */}
-              <input 
-                type="number" 
-                min="1" max="31"
-                value={daysForm.totalDays}
-                onChange={(e) => setDaysForm({...daysForm, totalDays: e.target.value === '' ? '' : parseInt(e.target.value)})}
-                className="w-full border border-gray-300 p-2 rounded focus:outline-none focus:border-[#5D1919]" 
-              />
-            </div>
+            <table className="w-full text-left border-collapse text-sm">
+              <thead>
+                <tr className="bg-gray-50 text-gray-700">
+                  <th className="py-2 px-4 border-b font-bold">Month</th>
+                  <th className="py-2 px-4 border-b font-bold text-right">Total Days</th>
+                </tr>
+              </thead>
+              <tbody>
+                {months.map(m => {
+                  const monthData = yearlySummary.find(y => y.month_name === m);
+                  const isCurrentSelection = daysForm.monthName === m;
+                  
+                  return (
+                    <tr key={m} className={`border-b last:border-0 ${isCurrentSelection ? 'bg-yellow-50' : 'hover:bg-gray-50'}`}>
+                      <td className={`py-2 px-4 ${isCurrentSelection ? 'font-bold text-[#5D1919]' : 'text-gray-700'}`}>
+                        {m}
+                      </td>
+                      <td className={`py-2 px-4 text-right ${isCurrentSelection ? 'font-bold text-[#5D1919]' : 'text-gray-900'}`}>
+                        {monthData ? (
+                           <span className="bg-green-100 text-green-800 py-1 px-2 rounded-full text-xs font-bold">
+                             {monthData.total_days}
+                           </span>
+                        ) : (
+                          <span className="text-gray-300 italic">Not set</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
 
-            <button 
-              type="submit" 
-              disabled={daysSubmitting}
-              className="w-full bg-[#5D1919] text-white font-bold py-2 rounded hover:bg-[#3e0f0f] transition disabled:opacity-70 mt-4"
-            >
-              {daysSubmitting ? "Saving..." : "Save Calendar Setup"}
-            </button>
-          </form>
         </div>
       )}
 

@@ -1,15 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
+
+// --- INTERFACES ---
+interface Section {
+  grade_level: string;
+  section_name?: string;
+  name?: string; // Added fallback property in case your backend sends 'name' instead of 'section_name'
+}
 
 interface Student {
   enrollment_id: number;
+  learner_id: number;
   lrn: string;
   first_name: string;
   middle_name: string | null;
   last_name: string;
   gender: string;
-  grades_visible: boolean; // New field added
+  grades_visible: boolean;
 }
 
 interface GradeRecord {
@@ -20,8 +29,10 @@ interface GradeRecord {
 }
 
 export default function AdvisoryClass() {
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+
   const [isAdviser, setIsAdviser] = useState(false);
-  const [section, setSection] = useState<any>(null);
+  const [section, setSection] = useState<Section | null>(null);
   const [schoolYear, setSchoolYear] = useState("");
   const [globalActiveTrimester, setGlobalActiveTrimester] = useState<number | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
@@ -35,7 +46,7 @@ export default function AdvisoryClass() {
     const fetchGlobalSettings = async () => {
       const token = localStorage.getItem("token");
       try {
-        const res = await fetch("http://localhost:5000/api/settings", {
+        const res = await fetch(`${API_URL}/api/settings`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
@@ -47,13 +58,13 @@ export default function AdvisoryClass() {
       }
     };
     fetchGlobalSettings();
-  }, []);
+  }, [API_URL]);
 
   const fetchAdvisoryData = async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/api/faculty/advisory-class", {
+      const res = await fetch(`${API_URL}/api/faculty/advisory-class`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -62,7 +73,6 @@ export default function AdvisoryClass() {
         if (data.isAdviser) {
           setSection(data.section);
           setSchoolYear(data.school_year);
-          // Defaulting grades_visible to false if it comes back undefined for now
           const mappedStudents = (data.students || []).map((s: any) => ({
             ...s,
             grades_visible: s.grades_visible || false 
@@ -81,6 +91,14 @@ export default function AdvisoryClass() {
   useEffect(() => {
     fetchAdvisoryData();
   }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsModalOpen(false);
+    };
+    if (isModalOpen) window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isModalOpen]);
 
   const getStudentCardData = (enrollmentId: number) => {
     const studentGrades = allGrades.filter(g => g.enrollment_id === enrollmentId);
@@ -104,23 +122,15 @@ export default function AdvisoryClass() {
   };
 
   const handleToggleVisibility = async (enrollmentId: number, currentStatus: boolean) => {
-    // 1. Check if the button click registers at all
-    console.log(`[DEBUG] Button clicked! Enrollment ID: ${enrollmentId} | Current Status: ${currentStatus}`);
-    
     const newStatus = !currentStatus;
     
-    // 2. Optimistic UI Update
     setStudents(prev => prev.map(s => 
       s.enrollment_id === enrollmentId ? { ...s, grades_visible: newStatus } : s
     ));
-    console.log(`[DEBUG] UI instantly updated to: ${newStatus}`);
     
     try {
-      // 3. Track the API request
-      console.log(`[DEBUG] Firing fetch request to backend...`);
       const token = localStorage.getItem("token");
-      
-      const res = await fetch(`http://localhost:5000/api/faculty/advisory-class/visibility/${enrollmentId}`, {
+      const res = await fetch(`${API_URL}/api/faculty/advisory-class/visibility/${enrollmentId}`, {
         method: "PUT",
         headers: { 
           "Content-Type": "application/json",
@@ -129,18 +139,11 @@ export default function AdvisoryClass() {
         body: JSON.stringify({ isVisible: newStatus })
       });
 
-      console.log(`[DEBUG] Backend responded with status: ${res.status}`);
-
       if (!res.ok) {
-        const errorText = await res.text();
-        console.error(`[DEBUG] Server error details:`, errorText);
         throw new Error("Failed to save");
       }
-      
-      console.log(`[DEBUG] Success! Database updated.`);
     } catch (err) {
-      console.error("[DEBUG] Caught an error. Reverting UI.", err);
-      // Revert UI if server fails
+      console.error("Caught an error. Reverting UI.", err);
       setStudents(prev => prev.map(s => 
         s.enrollment_id === enrollmentId ? { ...s, grades_visible: currentStatus } : s
       ));
@@ -150,7 +153,7 @@ export default function AdvisoryClass() {
   const handleDownloadSF1 = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/api/faculty/advisory-class/sf1", {
+      const res = await fetch(`${API_URL}/api/faculty/advisory-class/sf1`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) throw new Error("Failed to generate file");
@@ -159,7 +162,8 @@ export default function AdvisoryClass() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `SF1_${section.section_name}.xlsx`;
+      // Using fallback for section name
+      a.download = `SF1_${section?.section_name || section?.name || "Section"}.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -171,7 +175,7 @@ export default function AdvisoryClass() {
   const handleDownloadSF2 = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/api/faculty/advisory-class/sf2", {
+      const res = await fetch(`${API_URL}/api/faculty/advisory-class/sf2`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) throw new Error("Failed to generate file");
@@ -180,7 +184,8 @@ export default function AdvisoryClass() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `SF2_${section.section_name}.xlsx`;
+      // Using fallback for section name
+      a.download = `SF2_${section?.section_name || section?.name || "Section"}.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -188,7 +193,7 @@ export default function AdvisoryClass() {
       alert("Error downloading SF2.");
     }
   };
-  // Separate and sort students
+
   const maleStudents = students
     .filter(s => s.gender === 'Male')
     .sort((a, b) => a.last_name.localeCompare(b.last_name));
@@ -221,40 +226,57 @@ export default function AdvisoryClass() {
               <td colSpan={5} className="p-6 text-center text-gray-500 italic">No {title.toLowerCase()} students.</td>
             </tr>
           ) : (
-            studentList.map((student, idx) => (
-              <tr key={student.enrollment_id} className="border-b border-gray-100 hover:bg-gray-50 transition">
-                <td className="p-3 text-center text-gray-500 font-bold">{idx + 1}</td>
-                <td className="p-3 font-mono text-gray-600 text-xs">{student.lrn}</td>
-                <td className="p-3 font-semibold text-gray-800">
-                  {student.last_name}, {student.first_name}
-                  <button 
-                    onClick={() => handleViewReportCard(student)}
-                    className="ml-2 text-gray-400 hover:text-[#5D1919] transition"
-                    title="View SF9 Report Card"
-                  >
-                    📄
-                  </button>
-                </td>
-                <td className="p-3 text-center">
-                  <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${student.grades_visible ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-600'}`}>
-                    {student.grades_visible ? "Visible" : "Hidden"}
-                  </span>
-                </td>
-                <td className="p-3 text-center">
-                  <button 
-                    onClick={() => handleToggleVisibility(student.enrollment_id, student.grades_visible)}
-                    className={`text-xs font-bold py-1.5 px-3 rounded flex items-center justify-center gap-1 w-full transition shadow-sm ${student.grades_visible ? 'text-gray-600 bg-gray-100 hover:bg-gray-200' : 'text-[#5D1919] bg-red-50 hover:bg-red-100 border border-red-100'}`}
-                  >
-                    {student.grades_visible ? " Hide" : " Show"}
-                  </button>
-                </td>
-              </tr>
-            ))
+            studentList.map((student, idx) => {
+              // Constructing the string safely to avoid 'undefined'
+              const secName = section?.section_name || section?.name || "Unnamed Section";
+              const formattedSectionString = `${section?.grade_level} - ${secName}`;
+
+              return (
+                <tr key={student.enrollment_id} className="border-b border-gray-100 hover:bg-gray-50 transition">
+                  <td className="p-3 text-center text-gray-500 font-bold">{idx + 1}</td>
+                  <td className="p-3 font-mono text-gray-600 text-xs">{student.lrn}</td>
+                  <td className="p-3 font-semibold text-gray-800">
+                    {student.last_name}, {student.first_name}
+                    <button 
+                      onClick={() => handleViewReportCard(student)}
+                      className="ml-2 text-gray-400 hover:text-[#5D1919] transition"
+                      title="View SF9 Report Card"
+                    >
+                      📄
+                    </button>
+                  </td>
+                  <td className="p-3 text-center">
+                    <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${student.grades_visible ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-600'}`}>
+                      {student.grades_visible ? "Visible" : "Hidden"}
+                    </span>
+                  </td>
+                  <td className="p-3 text-center flex flex-col gap-1">
+                    <button 
+                      onClick={() => handleToggleVisibility(student.enrollment_id, student.grades_visible)}
+                      className={`text-xs font-bold py-1.5 px-3 rounded flex items-center justify-center gap-1 w-full transition shadow-sm ${student.grades_visible ? 'text-gray-600 bg-gray-100 hover:bg-gray-200' : 'text-[#5D1919] bg-red-50 hover:bg-red-100 border border-red-100'}`}
+                    >
+                      {student.grades_visible ? " Hide Grades" : " Show Grades"}
+                    </button>
+
+                    {/* Updated Link passing the safe formattedSectionString */}
+                    <Link 
+                      href={`/faculty/observed-values?learnerId=${student.learner_id}&studentName=${encodeURIComponent(`${student.last_name}, ${student.first_name}`)}&sectionName=${encodeURIComponent(formattedSectionString)}`}
+                      className="text-xs font-bold py-1.5 px-3 rounded flex items-center justify-center gap-1 w-full transition shadow-sm text-yellow-700 bg-yellow-50 hover:bg-yellow-100 border border-yellow-100"
+                    >
+                      ⭐ Values
+                    </Link>
+                  </td>
+                </tr>
+              )
+            })
           )}
         </tbody>
       </table>
     </div>
   );
+
+  const currentStudentGrades = selectedStudent ? getStudentCardData(selectedStudent.enrollment_id) : {};
+  const displaySectionName = section?.section_name || section?.name || "Unnamed Section";
 
   return (
     <div className="p-8 max-w-[90rem] mx-auto">
@@ -268,7 +290,7 @@ export default function AdvisoryClass() {
 
       {loading ? (
         <p className="p-8 text-center text-gray-500 italic">Loading advisory roster...</p>
-      ) : !isAdviser ? (
+      ) : !isAdviser || !section ? (
         <div className="bg-white p-12 rounded-lg shadow-sm border text-center">
           <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
             <span className="text-2xl">⚠️</span>
@@ -279,13 +301,21 @@ export default function AdvisoryClass() {
       ) : (
         <>
           {/* Header Controls */}
-          <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6 flex justify-between items-center">
+          <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6 flex justify-between items-center flex-wrap gap-4">
             <div>
-              <h2 className="text-xl font-bold text-[#5D1919]">{section.grade_level} - {section.section_name}</h2>
+              <h2 className="text-xl font-bold text-[#5D1919]">
+                {section.grade_level} - {displaySectionName}
+              </h2>
               <p className="text-sm text-gray-500 font-medium">School Year: {schoolYear} | Trimester {globalActiveTrimester}</p>
             </div>
-            
-            <div className="flex gap-2">
+                
+            <div className="flex gap-2 flex-wrap">
+              <Link href="/faculty/attendance" className="bg-[#5D1919] text-white hover:bg-[#3e0f0f] text-sm font-bold py-2 px-4 rounded transition flex items-center gap-2 shadow-sm">
+                📅 Monthly Attendance
+              </Link>
+                
+              <div className="h-9 w-px bg-gray-300 mx-1 hidden sm:block"></div>
+                
               <button onClick={handleDownloadSF1} className="bg-white border border-green-600 text-green-700 hover:bg-green-50 text-sm font-bold py-2 px-4 rounded transition flex items-center gap-2 shadow-sm">
                 📗 SF1
               </button>
@@ -306,7 +336,7 @@ export default function AdvisoryClass() {
         </>
       )}
 
-      {/* Modal code remains the same as before */}
+      {/* Report Card Modal */}
       {isModalOpen && selectedStudent && (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto p-8 border-t-8 border-[#5D1919]">
@@ -327,7 +357,7 @@ export default function AdvisoryClass() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6 text-sm text-gray-700">
               <div><span className="block text-xs text-gray-400 uppercase font-bold">Name</span><strong>{selectedStudent.last_name}, {selectedStudent.first_name}</strong></div>
               <div><span className="block text-xs text-gray-400 uppercase font-bold">LRN</span><strong className="font-mono">{selectedStudent.lrn}</strong></div>
-              <div><span className="block text-xs text-gray-400 uppercase font-bold">Grade & Section</span><strong>{section.grade_level} - {section.section_name}</strong></div>
+              <div><span className="block text-xs text-gray-400 uppercase font-bold">Grade & Section</span><strong>{section?.grade_level} - {displaySectionName}</strong></div>
               <div><span className="block text-xs text-gray-400 uppercase font-bold">School Year</span><strong>{schoolYear}</strong></div>
             </div>
 
@@ -343,12 +373,12 @@ export default function AdvisoryClass() {
                 </tr>
               </thead>
               <tbody>
-                {Object.entries(getStudentCardData(selectedStudent.enrollment_id)).length === 0 ? (
+                {Object.entries(currentStudentGrades).length === 0 ? (
                   <tr>
                     <td colSpan={6} className="p-8 text-center text-gray-400 italic">No grade records found for this student.</td>
                   </tr>
                 ) : (
-                  Object.entries(getStudentCardData(selectedStudent.enrollment_id)).map(([subjectName, trimesters]) => {
+                  Object.entries(currentStudentGrades).map(([subjectName, trimesters]) => {
                     const gradesArray = [trimesters.tri1, trimesters.tri2, trimesters.tri3].filter(g => g !== null) as number[];
                     const finalGrade = gradesArray.length > 0 ? Math.round(gradesArray.reduce((acc, val) => acc + val, 0) / gradesArray.length) : null;
                     const remarks = finalGrade !== null ? (finalGrade >= 75 ? "PASSED" : "FAILED") : "-";
