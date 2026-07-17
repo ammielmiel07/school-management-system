@@ -13,6 +13,7 @@ app.use(express.json());
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const ExcelJS = require('exceljs');
 
 // Expose the 'uploads' directory publicly so the frontend can display the images
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -381,6 +382,48 @@ app.delete('/api/admin/calendar/:id', verifyToken, requireRole(ROLES.ADMIN), asy
     }
 });
 
+// ==========================================
+// ADMIN: SCHOOL DAYS (SF2)
+// ==========================================
+
+// POST: Admin sets total school days for a month
+app.post('/api/admin/school-days', verifyToken, requireRole(ROLES.ADMIN), async (req, res) => {
+    const { schoolYear, monthName, totalDays } = req.body;
+
+    try {
+        await pool.query(
+            `INSERT INTO school_calendar (school_year, month_name, total_days) 
+             VALUES ($1, $2, $3)
+             ON CONFLICT (school_year, month_name) 
+             DO UPDATE SET total_days = EXCLUDED.total_days`,
+            [schoolYear, monthName, totalDays]
+        );
+        res.json({ success: true, message: "School calendar updated successfully." });
+    } catch (err) {
+        console.error("Calendar Update Error:", err);
+        res.status(500).json({ error: "Failed to update calendar." });
+    }
+});
+
+// GET: Fetch school days for a specific year and month
+app.get('/api/admin/school-days', verifyToken, requireRole(ROLES.ADMIN), async (req, res) => {
+    try {
+        const { schoolYear, monthName } = req.query;
+        const result = await pool.query(
+            'SELECT total_days FROM school_calendar WHERE school_year = $1 AND month_name = $2',
+            [schoolYear, monthName]
+        );
+        
+        if (result.rows.length > 0) {
+            res.json({ success: true, totalDays: result.rows[0].total_days });
+        } else {
+            res.json({ success: true, totalDays: "" }); // Indicates no data saved yet
+        }
+    } catch (err) {
+        console.error("Fetch Calendar Error:", err);
+        res.status(500).json({ error: "Failed to fetch school days." });
+    }
+});
 // Create Learner AND auto-generate Parent (Relational Architecture)
 app.post('/api/admin/users/learner', verifyToken, requireRole(ROLES.ADMIN), async (req, res) => {
     try {
@@ -665,7 +708,7 @@ app.get('/api/admin/sections/advisers', verifyToken, requireRole(ROLES.ADMIN), a
             SELECT s.id, s.section_name, s.grade_level, 
                    f.first_name, f.last_name 
             FROM sections s
-            LEFT JOIN section_advisories sa ON s.id = sa.section_id AND sa.school_year = $1
+            LEFT JOIN section_advisories internal sa ON s.id = sa.section_id AND sa.school_year = $1
             LEFT JOIN faculty_profiles f ON sa.faculty_id = f.id
             ORDER BY s.grade_level ASC, s.section_name ASC
         `, [activeYear]);
@@ -715,27 +758,85 @@ app.post('/api/admin/sections/advisers', verifyToken, requireRole(ROLES.ADMIN), 
 // ADMIN: ACCOUNTS (USERS) CRUD
 // ==========================================
 
-// GET all Accounts (combined from faculty and learners)
+// GET all Accounts (Updated to fetch ALL profile columns)
 app.get('/api/admin/accounts', verifyToken, requireRole(ROLES.ADMIN), async (req, res) => {
     try {
-        // FIX: Hardcode the string 'faculty' as role, since we know these are faculty profiles
         const faculty = await pool.query(`
-            SELECT u.id as user_id, u.username, 'faculty' as role, f.id as profile_id, f.first_name, f.last_name, f.employee_no as identifier 
+            SELECT u.id as user_id, u.username, 'faculty' as role, f.*, f.employee_no as identifier 
             FROM users u JOIN faculty_profiles f ON u.id = f.user_id
         `);
         
-        // FIX: Hardcode the string 'learner' as role, since we know these are learner profiles
         const learners = await pool.query(`
-            SELECT u.id as user_id, u.username, 'learner' as role, l.id as profile_id, l.first_name, l.last_name, l.lrn as identifier 
+            SELECT u.id as user_id, u.username, 'learner' as role, l.*, l.lrn as identifier 
             FROM users u JOIN learner_profiles l ON u.id = l.user_id
         `);
 
-        // Combine both lists into one array
         const allAccounts = [...faculty.rows, ...learners.rows];
         res.json({ success: true, accounts: allAccounts });
     } catch (err) {
         console.error("Error fetching accounts:", err);
         res.status(500).json({ error: "Failed to fetch accounts." });
+    }
+});
+
+// PUT: Update an existing account (Updated to save ALL profile columns)
+app.put('/api/admin/accounts/:id', verifyToken, requireRole(ROLES.ADMIN), async (req, res) => {
+    const { id } = req.params; 
+    const data = req.body;
+
+    try {
+        await pool.query('BEGIN'); 
+
+        if (data.lrn !== undefined) {
+            await pool.query('UPDATE users SET username = $1 WHERE id = $2', [data.lrn, id]);
+            
+            // MASSIVE UPDATE FOR ALL LEARNER COLUMNS
+            await pool.query(
+                `UPDATE learner_profiles 
+                 SET lrn = $1, first_name = $2, middle_name = $3, last_name = $4, email = $5,
+                     birthdate = $6, gender = $7, school_year = $8, grade_level = $9, is_star_eligible = $10,
+                     mother_tongue = $11, ethnic_group = $12, religion = $13, house_street = $14,
+                     barangay = $15, city = $16, province = $17, father_first = $18, father_middle = $19,
+                     father_last = $20, mother_first = $21, mother_middle = $22, mother_last = $23,
+                     guardian_name = $24, guardian_relationship = $25, contact_number = $26
+                 WHERE user_id = $27`,
+                [
+                    data.lrn, data.firstName, data.middleName, data.lastName, data.email,
+                    data.birthdate, data.gender, data.schoolYear, data.gradeLevel, data.isStarEligible,
+                    data.motherTongue, data.ip, data.religion, data.houseStreet, data.barangay,
+                    data.city, data.province, data.fatherFirst, data.fatherMiddle, data.fatherLast,
+                    data.motherFirst, data.motherMiddle, data.motherLast, data.guardianName, 
+                    data.guardianRelation, data.contactNumber, id
+                ]
+            );
+
+            const newParentUsername = `P-${data.lrn}`;
+            await pool.query(
+                `UPDATE users SET username = $1 WHERE id = (SELECT user_id FROM parent_profiles WHERE linked_lrn = $2 LIMIT 1)`,
+                [newParentUsername, data.lrn]
+            );
+            await pool.query('UPDATE parent_profiles SET linked_lrn = $1 WHERE linked_lrn = $2', [data.lrn, data.lrn]);
+            
+        } else if (data.employeeNo !== undefined) {
+            await pool.query('UPDATE users SET username = $1 WHERE id = $2', [data.employeeNo, id]);
+            await pool.query(
+                `UPDATE faculty_profiles 
+                 SET employee_no = $1, first_name = $2, middle_name = $3, last_name = $4, email = $5,
+                     start_school_year = $6, contact_number = $7
+                 WHERE user_id = $8`,
+                [data.employeeNo, data.firstName, data.middleName, data.lastName, data.email, data.startSchoolYear, data.contactNumber, id]
+            );
+        }
+
+        await pool.query('COMMIT'); 
+        res.json({ success: true, message: "Account updated successfully!" });
+    } catch (error) {
+        await pool.query('ROLLBACK'); 
+        console.error("Backend Error updating account:", error);
+        if (error.code === '23505') {
+            return res.status(400).json({ error: "That LRN or Employee Number is already in use by another account." });
+        }
+        res.status(500).json({ error: "Failed to update account in the database." });
     }
 });
 
@@ -1113,15 +1214,58 @@ app.get('/api/faculty/my-classes', verifyToken, requireRole(ROLES.FACULTY), asyn
         res.status(500).json({ error: "Failed to fetch teaching loads." });
     }
 });
+// POST: Faculty saves a student's monthly attendance
+app.post('/api/faculty/attendance', verifyToken, requireRole(ROLES.FACULTY), async (req, res) => {
+    const { learnerId, schoolYear, monthName, daysAbsent, daysTardy } = req.body;
 
+    try {
+        await pool.query(
+            `INSERT INTO monthly_attendance (learner_id, school_year, month_name, days_absent, days_tardy) 
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (learner_id, school_year, month_name) 
+             DO UPDATE SET days_absent = EXCLUDED.days_absent, days_tardy = EXCLUDED.days_tardy`,
+            [learnerId, schoolYear, monthName, daysAbsent, daysTardy]
+        );
+        res.json({ success: true, message: "Attendance saved successfully." });
+    } catch (err) {
+        console.error("Attendance Update Error:", err);
+        res.status(500).json({ error: "Failed to save attendance." });
+    }
+});
+// POST: Faculty saves Core Values for a learner
+app.post('/api/faculty/core-values', verifyToken, requireRole(ROLES.FACULTY), async (req, res) => {
+    const { 
+        learnerId, schoolYear, quarter, 
+        md_1, md_2, mt_1, mt_2, mk_1, mb_1, mb_2 
+    } = req.body;
+
+    try {
+        await pool.query(
+            `INSERT INTO core_values_grades 
+             (learner_id, school_year, quarter, md_1, md_2, mt_1, mt_2, mk_1, mb_1, mb_2) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+             ON CONFLICT (learner_id, school_year, quarter) 
+             DO UPDATE SET 
+                md_1 = EXCLUDED.md_1, md_2 = EXCLUDED.md_2, 
+                mt_1 = EXCLUDED.mt_1, mt_2 = EXCLUDED.mt_2, 
+                mk_1 = EXCLUDED.mk_1, mb_1 = EXCLUDED.mb_1, mb_2 = EXCLUDED.mb_2`,
+            [learnerId, schoolYear, quarter, md_1, md_2, mt_1, mt_2, mk_1, mb_1, mb_2]
+        );
+        res.json({ success: true, message: "Observed values saved successfully." });
+    } catch (err) {
+        console.error("Core Values Update Error:", err);
+        res.status(500).json({ error: "Failed to save observed values." });
+    }
+});
 // GET: Fetch students, overall grades, individual item scores, AND Subject Weights
 app.get('/api/faculty/gradebook/:loadId', verifyToken, requireRole(ROLES.FACULTY), async (req, res) => {
     try {
         const { loadId } = req.params;
         const settings = await getSystemSettings();
-        const trimester = ensureActiveTrimester(req.query.trimester, settings, res);
-
-        if (!trimester) return;
+        
+        // ALLOW VIEWING ANY TRIMESTER: 
+        // Use the requested trimester, or default to the active one if none is provided.
+        const trimester = req.query.trimester ? parseInt(req.query.trimester) : settings.active_trisemester;
 
         // Verify ownership AND fetch subject weights at the same time
         const weights = await getFacultyOwnedLoad(loadId, req.user.id);
@@ -1178,9 +1322,10 @@ app.get('/api/faculty/grade-items/:loadId', verifyToken, requireRole(ROLES.FACUL
     try {
         const { loadId } = req.params;
         const settings = await getSystemSettings();
-        const trimester = ensureActiveTrimester(req.query.trimester, settings, res);
-
-        if (!trimester) return;
+        
+        // ALLOW VIEWING ANY TRIMESTER: 
+        // Use the requested trimester, or default to the active one if none is provided.
+        const trimester = req.query.trimester ? parseInt(req.query.trimester) : settings.active_trisemester;
 
         const ownedLoad = await getFacultyOwnedLoad(loadId, req.user.id);
         if (!ownedLoad) {
@@ -1194,7 +1339,7 @@ app.get('/api/faculty/grade-items/:loadId', verifyToken, requireRole(ROLES.FACUL
             ORDER BY component DESC, id ASC
         `, [loadId, trimester]);
 
-        res.json({ success: true, items: result.rows });
+        res.json({ items: result.rows });
     } catch (err) {
         console.error(err.message);
         res.status(500).json({ error: "Failed to fetch grade items." });
@@ -1365,7 +1510,7 @@ app.post('/api/faculty/save-grades', verifyToken, requireRole(ROLES.FACULTY), as
         const { ww_weight, pt_weight, ex_weight } = subjectInfo.rows[0];
 
         // 3. Perform the Math Engine calculation directly in PostgreSQL
-        // This calculates the (Sum of Scores / Sum of Max Scores) * Weight for each component
+        // This calculates the (Sum of Scores / Sum of Max Scores) * Weight * 100 for each component
         const computeQuery = await pool.query(`
             WITH StudentComponentTotals AS (
                 SELECT 
@@ -1380,9 +1525,9 @@ app.post('/api/faculty/save-grades', verifyToken, requireRole(ROLES.FACULTY), as
             )
             SELECT 
                 enrollment_id,
-                MAX(CASE WHEN component = 'WW' THEN (total_score / NULLIF(total_max, 0)) * $3 ELSE 0 END) as ww_ws,
-                MAX(CASE WHEN component = 'PT' THEN (total_score / NULLIF(total_max, 0)) * $4 ELSE 0 END) as pt_ws,
-                MAX(CASE WHEN component = 'EX' THEN (total_score / NULLIF(total_max, 0)) * $5 ELSE 0 END) as ex_ws
+                MAX(CASE WHEN component = 'WW' THEN (total_score / NULLIF(total_max, 0)) * $3 * 100 ELSE 0 END) as ww_ws,
+                MAX(CASE WHEN component = 'PT' THEN (total_score / NULLIF(total_max, 0)) * $4 * 100 ELSE 0 END) as pt_ws,
+                MAX(CASE WHEN component = 'EX' THEN (total_score / NULLIF(total_max, 0)) * $5 * 100 ELSE 0 END) as ex_ws
             FROM StudentComponentTotals
             GROUP BY enrollment_id
         `, [loadId, activeTrimester, ww_weight, pt_weight, ex_weight]);
@@ -1528,7 +1673,7 @@ app.get('/api/faculty/advisory-class', verifyToken, requireRole(ROLES.FACULTY), 
 
         // 3. Fetch all students enrolled in this advisory section
         const students = await pool.query(`
-            SELECT e.id as enrollment_id, l.lrn, l.first_name, l.middle_name, l.last_name, l.gender
+            SELECT e.id as enrollment_id, e.grades_visible, l.lrn, l.first_name, l.middle_name, l.last_name, l.gender
             FROM enrollments e
             JOIN learner_profiles l ON e.learner_id = l.id
             WHERE e.section_id = $1 AND e.school_year = $2
@@ -1563,14 +1708,224 @@ app.get('/api/faculty/advisory-class', verifyToken, requireRole(ROLES.FACULTY), 
     }
 });
 
+// PUT: Update Grade Visibility for a Learner
+app.put('/api/faculty/advisory-class/visibility/:enrollmentId', verifyToken, requireRole(ROLES.FACULTY), async (req, res) => {
+    try {
+        const { enrollmentId } = req.params;
+        const { isVisible } = req.body;
+
+        await pool.query(
+            'UPDATE enrollments SET grades_visible = $1 WHERE id = $2',
+            [isVisible, enrollmentId]
+        );
+
+        res.json({ success: true, message: "Visibility updated." });
+    } catch (err) {
+        console.error("Error updating visibility:", err);
+        res.status(500).json({ error: "Failed to update visibility." });
+    }
+});
+
+// GET: Generate SF1 (School Form 1)
+app.get('/api/faculty/advisory-class/sf1', verifyToken, requireRole(ROLES.FACULTY), async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const settings = await getSystemSettings();
+        const activeYear = settings?.current_school_year;
+
+        // 1. Fetch section and student data
+        const sectionCheck = await pool.query(`
+            SELECT s.section_name, s.grade_level
+            FROM section_advisories sa
+            JOIN sections s ON sa.section_id = s.id
+            JOIN faculty_profiles fp ON sa.faculty_id = fp.id
+            WHERE fp.user_id = $1 AND sa.school_year = $2
+        `, [userId, activeYear]);
+
+        if (sectionCheck.rows.length === 0) return res.status(403).json({ error: "Not an adviser." });
+
+        const students = await pool.query(`
+            SELECT l.* FROM enrollments e
+            JOIN learner_profiles l ON e.learner_id = l.id
+            WHERE e.section_id = (SELECT section_id FROM section_advisories sa JOIN faculty_profiles fp ON sa.faculty_id = fp.id WHERE fp.user_id = $1 AND sa.school_year = $2)
+            ORDER BY l.gender DESC, l.last_name ASC
+        `, [userId, activeYear]);
+
+        // 2. Load the specific SF1template.xlsx file
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.readFile(path.join(__dirname, 'templates', 'SF1template.xlsx'));
+        const worksheet = workbook.getWorksheet(1);
+
+        // 3. Populate Header Data (Based on your SF1template.xlsx structure)
+        worksheet.getCell('AB4').value = sectionCheck.rows[0].grade_level; // Grade Level
+        worksheet.getCell('AN4').value = sectionCheck.rows[0].section_name; // Section Name
+        worksheet.getCell('T4').value = activeYear; // School Year
+
+        // 1. Separate students by gender and sort alphabetically (Last Name, then First Name)
+        const males = students.rows
+            .filter(s => s.gender === 'Male')
+            .sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
+            
+        const females = students.rows
+            .filter(s => s.gender === 'Female')
+            .sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
+
+        // 2. Helper function containing your exact mappings
+        const populateRow = (student, currentRow) => {
+            // Existing Mappings
+            worksheet.getCell(`A${currentRow}`).value = student.lrn;
+            worksheet.getCell(`C${currentRow}`).value = `${student.last_name}, ${student.first_name} ${student.middle_name || ''}`;
+            worksheet.getCell(`G${currentRow}`).value = student.gender === 'Male' ? 'M' : 'F';
+            
+            // --- NEW MAPPINGS FOR DEMOGRAPHICS ---
+            // Formats SQL date nicely
+            worksheet.getCell(`H${currentRow}`).value = student.birthdate ? new Date(student.birthdate).toLocaleDateString() : ''; 
+            
+            worksheet.getCell(`M${currentRow}`).value = student.mother_tongue;
+            worksheet.getCell(`N${currentRow}`).value = student.ethnic_group;
+            worksheet.getCell(`O${currentRow}`).value = student.religion;
+            
+            // Address mapping
+            worksheet.getCell(`Q${currentRow}`).value = student.house_street;
+            worksheet.getCell(`T${currentRow}`).value = student.barangay;
+            worksheet.getCell(`V${currentRow}`).value = student.city;
+            worksheet.getCell(`AA${currentRow}`).value = student.province;
+            
+            // Parents mapping 
+            worksheet.getCell(`AE${currentRow}`).value = student.father_last ? `${student.father_last}, ${student.father_first}, ${student.father_middle || ''}` : '';
+            worksheet.getCell(`AJ${currentRow}`).value = student.mother_last ? `${student.mother_last}, ${student.mother_first}, ${student.mother_middle || ''}` : '';
+            
+            // Guardian Info
+            worksheet.getCell(`AN${currentRow}`).value = student.guardian_name;
+            worksheet.getCell(`AO${currentRow}`).value = student.guardian_relationship;
+            worksheet.getCell(`AQ${currentRow}`).value = student.contact_number;
+        };
+
+        // 3. Populate Male Rows (Starts at Row 7, stops before Row 32)
+        let maleRow = 7;
+        males.forEach(student => {
+            if (maleRow < 32) { // Safety check to prevent overwriting the total row
+                populateRow(student, maleRow);
+                maleRow++;
+            }
+        });
+        
+        // Write Total Males to A32
+        worksheet.getCell('A32').value = males.length; // Or you can change to: `TOTAL MALE: ${males.length}`
+
+        // 4. Populate Female Rows (Starts at Row 33, stops before Row 55)
+        let femaleRow = 33;
+        females.forEach(student => {
+            if (femaleRow < 55) { // Safety check to prevent overwriting the total row
+                populateRow(student, femaleRow);
+                femaleRow++;
+            }
+        });
+        
+        // Write Total Females to A55
+        worksheet.getCell('A55').value = females.length; // Or you can change to: `TOTAL FEMALE: ${females.length}`
+
+        // 5. Write Combined Total to A56
+        worksheet.getCell('A56').value = males.length + females.length; // Or you can change to: `COMBINED TOTAL: ${males.length + females.length}`
+
+        // 5. Send the file to the frontend
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', 'attachment; filename=' + `SF1_${sectionCheck.rows[0].section_name}.xlsx`);
+        await workbook.xlsx.write(res);
+        res.end();
+
+    } catch (err) {
+        console.error("SF1 Generation Error:", err);
+        res.status(500).json({ error: "Failed to generate SF1." });
+    }
+});
+
+// GET: Generate SF2 (School Form 2)
+app.get('/api/faculty/advisory-class/sf2', verifyToken, requireRole(ROLES.FACULTY), async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const settings = await getSystemSettings();
+        const activeYear = settings?.current_school_year;
+
+        // Fetch section and student data for SF2
+        const sectionCheck = await pool.query(`
+            SELECT s.section_name, s.grade_level
+            FROM section_advisories sa
+            JOIN sections s ON sa.section_id = s.id
+            JOIN faculty_profiles fp ON sa.faculty_id = fp.id
+            WHERE fp.user_id = $1 AND sa.school_year = $2
+        `, [userId, activeYear]);
+
+        if (sectionCheck.rows.length === 0) return res.status(403).json({ error: "Not an adviser." });
+
+        const students = await pool.query(`
+            SELECT l.first_name, l.middle_name, l.last_name, l.gender 
+            FROM enrollments e
+            JOIN learner_profiles l ON e.learner_id = l.id
+            WHERE e.section_id = (SELECT section_id FROM section_advisories sa JOIN faculty_profiles fp ON sa.faculty_id = fp.id WHERE fp.user_id = $1 AND sa.school_year = $2)
+        `, [userId, activeYear]);
+
+        // Load the specific SF2template.xlsx file
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.readFile(path.join(__dirname, 'templates', 'SF2template.xlsx'));
+        const worksheet = workbook.getWorksheet(1);
+
+        // 1. Populate SF2 Header Data
+        worksheet.getCell('C8').value = 'Prudencia D. Fule Memorial National High School';
+        worksheet.getCell('Y8').value = sectionCheck.rows[0].grade_level;
+        worksheet.getCell('AH8').value = sectionCheck.rows[0].section_name;
+        worksheet.getCell('L6').value = activeYear;
+
+        // 2. Separate students by gender and sort alphabetically
+        const males = students.rows
+            .filter(s => s.gender === 'Male')
+            .sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
+            
+        const females = students.rows
+            .filter(s => s.gender === 'Female')
+            .sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
+
+        // 3. Populate Male Rows (Starts at Row 14)
+        let maleRow = 14;
+        let maleIndex = 1;
+        males.forEach(student => {
+            worksheet.getCell(`A${maleRow}`).value = maleIndex; // Numbering 1, 2, 3...
+            worksheet.getCell(`B${maleRow}`).value = `${student.last_name}, ${student.first_name} ${student.middle_name || ''}`;
+            maleRow++;
+            maleIndex++;
+        });
+
+        // 4. Populate Female Rows (Starts at Row 36)
+        let femaleRow = 36;
+        let femaleIndex = 1;
+        females.forEach(student => {
+            worksheet.getCell(`A${femaleRow}`).value = femaleIndex; // Numbering 1, 2, 3...
+            worksheet.getCell(`B${femaleRow}`).value = `${student.last_name}, ${student.first_name} ${student.middle_name || ''}`;
+            femaleRow++;
+            femaleIndex++;
+        });
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', 'attachment; filename=' + `SF2_${sectionCheck.rows[0].section_name}.xlsx`);
+        await workbook.xlsx.write(res);
+        res.end();
+    } catch (err) {
+        console.error("SF2 Generation Error:", err);
+        res.status(500).json({ error: "Failed to generate SF2." });
+    }
+});
+
 // ==========================================
 // LEARNER & PARENT PORTALS
 // ==========================================
 
-async function getGradesForLearnerUser(userId) {
+// Add 'requestedTrimester' as the second parameter
+async function getGradesForLearnerUser(userId, requestedTrimester = null) {
     const settings = await getSystemSettings();
     const activeYear = settings?.current_school_year;
-    const activeTrimester = Number(settings?.active_trisemester);
+    
+    // Use the requested trimester, OR fallback to the active system setting
+    const targetTrimester = requestedTrimester || Number(settings?.active_trisemester);
 
     const learnerResult = await pool.query(`
         SELECT id, lrn, first_name, middle_name, last_name, grade_level
@@ -1583,41 +1938,53 @@ async function getGradesForLearnerUser(userId) {
     }
 
     const learner = learnerResult.rows[0];
+    
+    // Added ORDER BY to prevent multiple-row crashes
     const enrollmentResult = await pool.query(`
-        SELECT e.id as enrollment_id, e.school_year, s.section_name, s.grade_level
+        SELECT e.id as enrollment_id, s.section_name, s.grade_level, e.grades_visible 
         FROM enrollments e
         JOIN sections s ON e.section_id = s.id
         WHERE e.learner_id = $1 AND e.school_year = $2
-        LIMIT 1
+        ORDER BY e.id DESC LIMIT 1
     `, [learner.id, activeYear]);
 
-    if (enrollmentResult.rows.length === 0) {
-        return { settings, learner, enrollment: null, grades: [] };
+    let enrollment = null;
+    let grades = [];
+
+    if (enrollmentResult.rows.length > 0) {
+        enrollment = enrollmentResult.rows[0];
+
+        // Now it is safe to check visibility
+        if (enrollment.grades_visible) {
+            const gradesResult = await pool.query(`
+                SELECT 
+                    sub.subject_name, 
+                    g.initial_grade, 
+                    g.transmuted_grade, 
+                    f.first_name as faculty_first_name, 
+                    f.last_name as faculty_last_name
+                FROM grades g
+                JOIN faculty_loads fl ON g.faculty_load_id = fl.id
+                JOIN subjects sub ON fl.subject_id = sub.id
+                JOIN faculty_profiles f ON fl.faculty_id = f.id
+                WHERE g.enrollment_id = $1 AND g.trimester = $2
+            `, [enrollment.enrollment_id, targetTrimester]); 
+            
+            grades = gradesResult.rows;
+        }
     }
 
-    const enrollment = enrollmentResult.rows[0];
-    const gradesResult = await pool.query(`
-        SELECT 
-            g.trimester,
-            g.initial_grade,
-            g.transmuted_grade,
-            sub.subject_name,
-            fp.first_name as faculty_first_name,
-            fp.last_name as faculty_last_name
-        FROM grades g
-        JOIN faculty_loads fl ON g.faculty_load_id = fl.id
-        JOIN subjects sub ON fl.subject_id = sub.id
-        JOIN faculty_profiles fp ON fl.faculty_id = fp.id
-        WHERE g.enrollment_id = $1 AND g.trimester = $2
-        ORDER BY sub.subject_name ASC
-    `, [enrollment.enrollment_id, activeTrimester]);
-
-    return { settings, learner, enrollment, grades: gradesResult.rows };
+    return { settings, learner, enrollment, grades };
 }
 
+// GET: Fetch Learner Grades
 app.get('/api/learner/grades', verifyToken, requireRole(ROLES.LEARNER), async (req, res) => {
     try {
-        const data = await getGradesForLearnerUser(req.user.id);
+        // Grab the trimester from the URL if it exists
+        const requestedTri = req.query.trimester ? parseInt(req.query.trimester) : null;
+        
+        // Pass it to your helper function
+        const data = await getGradesForLearnerUser(req.user.id, requestedTri);
 
         res.json({
             success: true,
@@ -1636,6 +2003,8 @@ app.get('/api/learner/grades', verifyToken, requireRole(ROLES.LEARNER), async (r
 app.get('/api/parent/children-grades', verifyToken, requireRole(ROLES.PARENT), async (req, res) => {
     try {
         const settings = await getSystemSettings();
+        const requestedTri = req.query.trimester ? parseInt(req.query.trimester) : null;
+
         const parentResult = await pool.query(
             'SELECT linked_lrn FROM parent_profiles WHERE user_id = $1',
             [req.user.id]
@@ -1659,7 +2028,8 @@ app.get('/api/parent/children-grades', verifyToken, requireRole(ROLES.PARENT), a
             );
 
             if (learnerUser.rows.length > 0) {
-                const childGrades = await getGradesForLearnerUser(learnerUser.rows[0].user_id);
+                // Pass the requested trimester down to the child fetcher as well
+                const childGrades = await getGradesForLearnerUser(learnerUser.rows[0].user_id, requestedTri);
                 children.push({
                     learner: childGrades.learner,
                     enrollment: childGrades.enrollment,

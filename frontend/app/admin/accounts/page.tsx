@@ -120,22 +120,46 @@ export default function AdminAccounts() {
     setEditingUserId(acc.user_id);
     
     if (acc.role === "learner") {
-      // Pre-fill learner form (adjust mapping based on your exact database column names)
       setLearnerForm({
         ...learnerForm,
+        lrn: acc.lrn || "",
         firstName: acc.first_name || "",
+        middleName: acc.middle_name || "",
         lastName: acc.last_name || "",
         email: acc.email || "",
-        lrn: acc.identifier || "", // Assuming identifier holds LRN
-        // Add other fields you want pre-filled here...
+        // Dates from SQL come with timestamps, we split to just get YYYY-MM-DD for the input
+        birthdate: acc.birthdate ? acc.birthdate.split('T')[0] : "", 
+        gender: acc.gender || "",
+        schoolYear: acc.school_year || "2024-2025",
+        gradeLevel: acc.grade_level || "7",
+        isStarEligible: acc.is_star_eligible || false,
+        motherTongue: acc.mother_tongue || "",
+        ip: acc.ethnic_group || "",
+        religion: acc.religion || "",
+        houseStreet: acc.house_street || "",
+        barangay: acc.barangay || "",
+        city: acc.city || "",
+        province: acc.province || "",
+        fatherFirst: acc.father_first || "",
+        fatherMiddle: acc.father_middle || "",
+        fatherLast: acc.father_last || "",
+        motherFirst: acc.mother_first || "",
+        motherMiddle: acc.mother_middle || "",
+        motherLast: acc.mother_last || "",
+        guardianName: acc.guardian_name || "",
+        guardianRelation: acc.guardian_relationship || "",
+        contactNumber: acc.contact_number || ""
       });
     } else if (acc.role === "faculty") {
       setFacultyForm({
         ...facultyForm,
+        employeeNo: acc.employee_no || "",
         firstName: acc.first_name || "",
+        middleName: acc.middle_name || "",
         lastName: acc.last_name || "",
         email: acc.email || "",
-        employeeNo: acc.identifier || "", // Assuming identifier holds Emp No
+        startSchoolYear: acc.start_school_year || "2024-2025",
+        contactNumber: acc.contact_number || ""
       });
     }
     setIsEditModalOpen(true);

@@ -26,7 +26,6 @@ interface ItemScore {
   score: number;
 }
 
-// Utility: Convert Initial Grade to Transmuted Grade (Frontend Real-time)
 function getTransmutedGrade(initial: number) {
   if (initial >= 99.50) return 100;
   if (initial >= 98.32) return 99;
@@ -72,23 +71,44 @@ function getTransmutedGrade(initial: number) {
 }
 
 export default function Gradebook() {
+  
   const params = useParams();
   const router = useRouter();
   
   const [students, setStudents] = useState<Student[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [gradeItems, setGradeItems] = useState<GradeItem[]>([]);
-  
-  // Real-time State: Mapping Enrollment ID -> Grade Item ID -> Score String
   const [localScores, setLocalScores] = useState<Record<number, Record<number, string>>>({});
   
   const [trimester, setTrimester] = useState(1);
+  const [globalActiveTrimester, setGlobalActiveTrimester] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Dynamic Subject Weights
   const [wwWeight, setWwWeight] = useState(0);
   const [ptWeight, setPtWeight] = useState(0);
   const [exWeight, setExWeight] = useState(0);
+
+  // Fetch Global Settings first to auto-set the trimester
+  useEffect(() => {
+    const fetchGlobalSettings = async () => {
+      const token = localStorage.getItem("token");
+      try {
+        const res = await fetch("http://localhost:5000/api/settings", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (res.ok && data.settings) {
+          const activeTri = Number(data.settings.active_trisemester);
+          setGlobalActiveTrimester(activeTri);
+          setTrimester(activeTri); // Force default view to active trimester
+        }
+      } catch (err) {
+        console.error("Failed to fetch global system settings.");
+      }
+    };
+    fetchGlobalSettings();
+  }, []);
 
   useEffect(() => {
     const fetchGradebookData = async () => {
@@ -108,13 +128,11 @@ export default function Gradebook() {
         if (studentRes.ok && itemsRes.ok) {
           setStudents(studentData.students);
           setGradeItems(itemsData.items);
-            // Set the dynamic weights!
           if (studentData.weights) {
              setWwWeight(studentData.weights.ww);
              setPtWeight(studentData.weights.pt);
              setExWeight(studentData.weights.ex);
           }
-          // Build initial local state for interactive inputs
           const initialLocal: Record<number, Record<number, string>> = {};
           studentData.students.forEach((s: Student) => {
              initialLocal[s.enrollment_id] = {};
@@ -126,7 +144,7 @@ export default function Gradebook() {
               });
           }
           setLocalScores(initialLocal);
-
+          setError("");
         } else {
           setError(studentData.error || itemsData.error || "Failed to load gradebook.");
         }
@@ -139,7 +157,6 @@ export default function Gradebook() {
     fetchGradebookData();
   }, [params.loadId, trimester]);
 
-  // Interactive Input Handler
   const handleScoreChange = (enrollmentId: number, itemId: number, value: string) => {
     setLocalScores(prev => ({
       ...prev,
@@ -153,7 +170,6 @@ export default function Gradebook() {
   const handleSave = async () => {
     const scoresToSave: { enrollment_id: number; grade_item_id: number; score: number }[] = [];
     
-    // Convert React State into the array format for the backend
     Object.entries(localScores).forEach(([enrollmentId, items]) => {
         Object.entries(items).forEach(([itemId, scoreVal]) => {
             if (scoreVal !== "") {
@@ -198,6 +214,8 @@ export default function Gradebook() {
     }
   };
 
+  const isEditable = trimester === globalActiveTrimester;
+
   const wwItems = gradeItems.filter(item => item.component === 'WW');
   const ptItems = gradeItems.filter(item => item.component === 'PT');
   const exItems = gradeItems.filter(item => item.component === 'EX');
@@ -216,7 +234,9 @@ export default function Gradebook() {
       });
 
       const ps = maxTotal > 0 ? (totalScore / maxTotal) * 100 : 0;
-      const ws = maxTotal > 0 ? ps * (Number(weight) / 100) : 0;
+      
+      // FIX: Multiply by the whole weight number instead of dividing it by 100 again
+      const ws = maxTotal > 0 ? ps * Number(weight) : 0; 
 
       return { total: totalScore, maxTotal, ps, ws };
   };
@@ -224,13 +244,18 @@ export default function Gradebook() {
   // Math Helper: Max Scores for Header
   const getComponentMaxStats = (items: GradeItem[], weight: number) => {
       const maxTotal = items.reduce((acc, item) => acc + parseFloat(item.max_score || "0"), 0);
-      return { total: maxTotal, ps: maxTotal > 0 ? 100 : 0, ws: maxTotal > 0 ? Number(weight) : 0 };
+      
+      // FIX: Ensure the max possible component weight displays as a whole number (e.g., 20.00)
+      return { total: maxTotal, ps: maxTotal > 0 ? 100 : 0, ws: maxTotal > 0 ? Number(weight) * 100 : 0 };
   };
   
   const wwMax = getComponentMaxStats(wwItems, wwWeight);
   const ptMax = getComponentMaxStats(ptItems, ptWeight);
   const exMax = getComponentMaxStats(exItems, exWeight);
-
+  const filteredStudents = students.filter(student => 
+    `${student.last_name}, ${student.first_name}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    student.lrn.includes(searchQuery)
+  );
   return (
     <div className="p-8">
       <div className="max-w-[1400px] mx-auto">
@@ -241,13 +266,15 @@ export default function Gradebook() {
             Encode Grades 
           </h1>
           <div className="flex gap-4">
-            <Link 
-              href={`/faculty/manage-items/${params.loadId}`} 
-              className="bg-green-700 text-white px-4 py-2 rounded shadow hover:bg-green-800 flex items-center gap-2 font-semibold text-sm transition"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
-              Manage Grade Items
-            </Link>
+            {isEditable && (
+              <Link 
+                href={`/faculty/manage-items/${params.loadId}`} 
+                className="bg-green-700 text-white px-4 py-2 rounded shadow hover:bg-green-800 flex items-center gap-2 font-semibold text-sm transition"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                Manage Grade Items
+              </Link>
+            )}
             <Link 
               href="/faculty/my-classes" 
               className="border border-gray-300 bg-white text-gray-700 px-4 py-2 rounded shadow-sm hover:bg-gray-50 font-semibold text-sm transition"
@@ -257,29 +284,53 @@ export default function Gradebook() {
           </div>
         </div>
 
+        {/* Global Lock Alert banner */}
+        {!isEditable && !loading && (
+          <div className="bg-amber-50 border-l-4 border-amber-500 p-4 mb-6 rounded shadow-sm text-amber-800 font-medium">
+            ⚠️ This trimester is currently locked for grading. Changes cannot be saved.
+          </div>
+        )}
+
         <div className="bg-gray-100 border border-gray-300 p-4 rounded-lg mb-6 text-sm text-gray-700 shadow-sm">
           <p className="font-bold mb-1">Legend:</p>
           <ul className="list-disc pl-5 space-y-1">
             <li>Manage Grade Items — add/edit/delete WW, PT, EX items.</li>
-            <li>Scores instantly auto-calc PS (Percentage Score) & WS (Weighted Score) as you type.</li>
+            <li>Scores instantly auto-calc PS & WS as you type.</li>
             <li>WW/PT/EX weights: {wwWeight}% / {ptWeight}% / {exWeight}%</li>
           </ul>
         </div>
 
-        <div className="flex justify-center gap-2 mb-6">
-          {[1, 2, 3].map((tri) => (
-            <button
-              key={tri}
-              onClick={() => setTrimester(tri)}
-              className={`px-6 py-2 border rounded font-bold shadow-sm transition-colors text-sm ${
-                trimester === tri 
-                  ? "bg-[#5D1919] text-white border-[#5D1919]" 
-                  : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
-              }`}
-            >
-              {tri === 1 ? "1st" : tri === 2 ? "2nd" : "3rd"} Trimester
-            </button>
-          ))}
+        <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
+          <div className="flex gap-2">
+            {[1, 2, 3].map((tri) => (
+              <button
+                key={tri}
+                onClick={() => setTrimester(tri)}
+                className={`px-6 py-2 border rounded font-bold shadow-sm transition-colors text-sm flex items-center gap-1.5 ${
+                  trimester === tri 
+                    ? "bg-[#5D1919] text-white border-[#5D1919]" 
+                    : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                }`}
+              >
+                {tri === 1 ? "1st" : tri === 2 ? "2nd" : "3rd"} Trimester
+                {globalActiveTrimester === tri && (
+                  <span className="bg-green-600 text-white text-[10px] uppercase font-extrabold px-1.5 py-0.5 rounded-full shadow-sm">Active</span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* ADD THE SEARCH BAR HERE */}
+          <div className="w-full md:w-72 relative">
+            <input 
+              type="text" 
+              placeholder="Search by name or LRN..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full border border-gray-300 p-2 pl-9 rounded focus:outline-none focus:border-red-900 text-sm shadow-sm"
+            />
+            <svg className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+          </div>
         </div>
 
         {error && (
@@ -327,7 +378,6 @@ export default function Gradebook() {
                 </tr>
               </thead>
               <tbody>
-                {/* Dynamic Highest Possible Score Row */}
                 <tr className="bg-gray-100 font-bold text-center text-xs border-b border-gray-300 text-gray-800">
                   <td className="p-2 border-r border-gray-300"></td>
                   <td className="p-2 border-r border-gray-300 text-left uppercase">Highest Possible Score</td>
@@ -351,13 +401,11 @@ export default function Gradebook() {
                   <td></td>
                 </tr>
 
-                {/* Interactive Student Rows */}
-                {students.map((student, index) => {
+                {filteredStudents.map((student, index) => {
                   const wwStats = getComponentStats(student.enrollment_id, wwItems, wwWeight);
                   const ptStats = getComponentStats(student.enrollment_id, ptItems, ptWeight);
                   const exStats = getComponentStats(student.enrollment_id, exItems, exWeight);
                   
-                  // Live Math for Initial and Transmuted
                   const liveInitial = wwStats.ws + ptStats.ws + exStats.ws;
                   const liveTransmuted = liveInitial > 0 ? getTransmutedGrade(liveInitial) : null;
 
@@ -373,9 +421,15 @@ export default function Gradebook() {
                        <td key={item.id} className="p-1 border-r border-gray-200">
                             <input 
                               type="number" 
+                              step="1"
+                              disabled={!isEditable}
                               value={localScores[student.enrollment_id]?.[item.id] || ""}
-                              onChange={(e) => handleScoreChange(student.enrollment_id, item.id, e.target.value)}
-                              className="w-full text-center border border-gray-300 rounded p-1 focus:outline-none focus:border-blue-500 text-gray-800" 
+                              onChange={(e) => {
+                                // Strips decimal symbols and non-digits to force whole numbers
+                                const val = e.target.value.replace(/\D/g, '');
+                                handleScoreChange(student.enrollment_id, item.id, val);
+                              }}
+                              className="mx-auto w-16 text-center border border-gray-300 rounded p-1 focus:outline-none focus:border-blue-500 text-gray-800 disabled:bg-gray-100                    disabled:cursor-not-allowed [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
                             />
                        </td>
                     ))}
@@ -388,9 +442,14 @@ export default function Gradebook() {
                        <td key={item.id} className="p-1 border-r border-gray-200">
                          <input 
                            type="number" 
+                           step="1"
+                           disabled={!isEditable}
                            value={localScores[student.enrollment_id]?.[item.id] || ""}
-                           onChange={(e) => handleScoreChange(student.enrollment_id, item.id, e.target.value)}
-                           className="w-full text-center border border-gray-300 rounded p-1 focus:outline-none focus:border-blue-500 text-gray-800" 
+                           onChange={(e) => {
+                             const val = e.target.value.replace(/\D/g, '');
+                             handleScoreChange(student.enrollment_id, item.id, val);
+                           }}
+                           className="mx-auto w-16 text-center border border-gray-300 rounded p-1 focus:outline-none focus:border-blue-500 text-gray-800 disabled:bg-gray-100 disabled:cursor-not-allowed                     [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
                          />
                        </td>
                     ))}
@@ -403,9 +462,14 @@ export default function Gradebook() {
                        <td key={item.id} className="p-1 border-r border-gray-200">
                          <input 
                            type="number" 
+                           step="1"
+                           disabled={!isEditable}
                            value={localScores[student.enrollment_id]?.[item.id] || ""}
-                           onChange={(e) => handleScoreChange(student.enrollment_id, item.id, e.target.value)}
-                           className="w-full text-center border border-gray-300 rounded p-1 focus:outline-none focus:border-blue-500 text-gray-800" 
+                           onChange={(e) => {
+                             const val = e.target.value.replace(/\D/g, '');
+                             handleScoreChange(student.enrollment_id, item.id, val);
+                           }}
+                           className="mx-auto w-16 text-center border border-gray-300 rounded p-1 focus:outline-none focus:border-blue-500 text-gray-800 disabled:bg-gray-100 disabled:cursor-not-allowed                     [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
                          />
                        </td>
                     ))}
@@ -413,7 +477,6 @@ export default function Gradebook() {
                     <td className="p-2 border-r border-gray-200 text-gray-600 bg-gray-50">{exStats.ps.toFixed(2)}</td>
                     <td className="p-2 border-r border-gray-200 text-gray-600 bg-gray-50 font-semibold">{exStats.ws.toFixed(2)}</td>
 
-                    {/* Live Output */}
                     <td className="p-2 text-center bg-gray-50 border-r border-gray-200 font-bold text-gray-700">
                       {liveInitial > 0 ? liveInitial.toFixed(2) : "-"}
                     </td>
@@ -426,15 +489,15 @@ export default function Gradebook() {
             </table>
           )}
           
-          {students.length > 0 && (
+          {students.length > 0 && isEditable && (
             <div className="p-4 bg-white border-t border-gray-200 flex justify-center">
               <button 
-                  onClick={handleSave}
-                  className="bg-green-700 text-white font-bold py-2 px-8 rounded shadow hover:bg-green-800 transition flex items-center gap-2"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
-                  Save Scores
-                </button>
+                onClick={handleSave}
+                className="bg-green-700 text-white font-bold py-2 px-8 rounded shadow hover:bg-green-800 transition flex items-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+                Save Scores
+              </button>
             </div>
           )}
         </div>

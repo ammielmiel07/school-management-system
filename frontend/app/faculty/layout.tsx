@@ -47,7 +47,16 @@ export default function FacultyLayout({ children }: { children: React.ReactNode 
           >
             Dashboard
           </Link>
-          
+          <Link 
+            href="/faculty/my-classes" 
+            className={`block px-4 py-2 rounded transition ${
+              pathname === '/faculty/my-classes' 
+                ? 'bg-[#5D1919] text-white font-bold' 
+                : 'text-red-100 hover:bg-[#5D1919] hover:text-white'
+            }`}
+          >
+            My Classes
+          </Link>
           <Link 
             href="/faculty/advisory" 
             className={`block px-4 py-2 rounded transition ${
@@ -56,7 +65,7 @@ export default function FacultyLayout({ children }: { children: React.ReactNode 
                 : 'text-red-100 hover:bg-[#5D1919] hover:text-white'
             }`}
           >
-            Advisory & Grades
+            Advisory Class
           </Link>
         </nav>
 

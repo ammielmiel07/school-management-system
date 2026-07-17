@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -16,7 +16,8 @@ export default function ManageGradeItems() {
   const router = useRouter();
 
   const [items, setItems] = useState<GradeItem[]>([]);
-  const [trimester, setTrimester] = useState(1);
+  const [trimester, setTrimester] = useState<number>(1);
+  const [globalActiveTrimester, setGlobalActiveTrimester] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   // New Item Form State
@@ -26,11 +27,12 @@ export default function ManageGradeItems() {
     max: ""
   });
 
-  const fetchItems = async () => {
+  // 1. Unified Fetching Method
+  const fetchItems = async (targetTrimester: number) => {
     setLoading(true);
     const token = localStorage.getItem("token");
     try {
-      const res = await fetch(`http://localhost:5000/api/faculty/grade-items/${params.loadId}?trimester=${trimester}`, {
+      const res = await fetch(`http://localhost:5000/api/faculty/grade-items/${params.loadId}?trimester=${targetTrimester}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -44,12 +46,47 @@ export default function ManageGradeItems() {
     }
   };
 
+  // 2. Load System Configuration & Setup Sequence
   useEffect(() => {
-    fetchItems();
-  }, [params.loadId, trimester]);
+    const initializeComponent = async () => {
+      const token = localStorage.getItem("token");
+      let activeTri = 1;
+
+      try {
+        const res = await fetch("http://localhost:5000/api/settings", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (res.ok && data.settings) {
+          activeTri = Number(data.settings.active_trisemester);
+          setGlobalActiveTrimester(activeTri);
+          setTrimester(activeTri);
+        }
+      } catch (err) {
+        console.error("Failed to load setup parameters.");
+      } finally {
+        // Enforce execution synchronization by passing value directly
+        fetchItems(activeTri);
+      }
+    };
+
+    initializeComponent();
+  }, [params.loadId]);
+
+  // 3. Listen directly to interactive Trimester button alterations
+  useEffect(() => {
+    if (globalActiveTrimester !== null) {
+      fetchItems(trimester);
+    }
+  }, [trimester]);
 
   const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (trimester !== globalActiveTrimester) {
+      alert("This trimester is locked. You cannot modify structural grade items.");
+      return;
+    }
+
     const token = localStorage.getItem("token");
 
     try {
@@ -71,10 +108,11 @@ export default function ManageGradeItems() {
       });
 
       if (res.ok) {
-        setNewItem({ component: "WW", name: "", max: "" }); // Reset form
-        fetchItems(); // Refresh list
+        setNewItem({ component: "WW", name: "", max: "" }); 
+        fetchItems(trimester); 
       } else {
-        alert("Failed to add grade item.");
+        const data = await res.json();
+        alert(data.error || "Failed to add grade item.");
       }
     } catch (err) {
       alert("Server error.");
@@ -82,6 +120,11 @@ export default function ManageGradeItems() {
   };
 
   const handleDeleteItem = async (id: number) => {
+    if (trimester !== globalActiveTrimester) {
+      alert("This trimester is locked. You cannot delete grade items.");
+      return;
+    }
+
     if (!window.confirm("Are you sure? This will also delete ALL student scores encoded under this item!")) return;
 
     const token = localStorage.getItem("token");
@@ -92,14 +135,22 @@ export default function ManageGradeItems() {
       });
 
       if (res.ok) {
-        fetchItems();
+        fetchItems(trimester);
       } else {
-        alert("Failed to delete item.");
+        const data = await res.json();
+        alert(data.error || "Failed to delete item.");
       }
     } catch (err) {
       alert("Server error.");
     }
   };
+
+  // 4. Memoize dynamic items array sorting to resolve caching issues
+  const sortedItems = useMemo(() => {
+    return [...items].sort((a, b) => b.component.localeCompare(a.component));
+  }, [items]);
+
+  const isEditable = trimester === globalActiveTrimester;
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -116,18 +167,28 @@ export default function ManageGradeItems() {
         </Link>
       </div>
 
+      {/* Lock alert banner */}
+      {!isEditable && !loading && (
+        <div className="bg-amber-50 border-l-4 border-amber-500 p-4 mb-6 rounded shadow-sm text-amber-800 font-medium text-sm">
+          ⚠️ This trimester configuration is currently locked for structure changes. You cannot add or remove grade entries.
+        </div>
+      )}
+
       <div className="flex justify-center gap-2 mb-8">
         {[1, 2, 3].map((tri) => (
           <button
             key={tri}
             onClick={() => setTrimester(tri)}
-            className={`px-6 py-2 border rounded font-bold shadow-sm transition-colors ${
+            className={`px-6 py-2 border rounded font-bold shadow-sm transition-colors text-sm flex items-center gap-1.5 ${
               trimester === tri 
                 ? "bg-[#5D1919] text-white border-[#5D1919]" 
                 : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
             }`}
           >
             {tri === 1 ? "1st" : tri === 2 ? "2nd" : "3rd"} Trimester
+            {globalActiveTrimester === tri && (
+              <span className="bg-green-600 text-white text-[10px] uppercase font-extrabold px-1.5 py-0.5 rounded-full shadow-sm">Active</span>
+            )}
           </button>
         ))}
       </div>
@@ -141,9 +202,10 @@ export default function ManageGradeItems() {
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-1">Component</label>
               <select 
+                disabled={!isEditable}
                 value={newItem.component}
                 onChange={e => setNewItem({...newItem, component: e.target.value})}
-                className="w-full border border-gray-300 p-2 rounded focus:outline-none focus:border-red-900 bg-gray-50"
+                className="w-full border border-gray-300 p-2 rounded focus:outline-none focus:border-red-900 bg-gray-50 disabled:cursor-not-allowed text-gray-800"
               >
                 <option value="WW">Written Works (WW)</option>
                 <option value="PT">Performance Tasks (PT)</option>
@@ -155,10 +217,11 @@ export default function ManageGradeItems() {
               <input 
                 type="text" 
                 required 
-                placeholder="e.g. Quiz 1, Recitation, Prelim"
+                disabled={!isEditable}
+                placeholder="e.g. Quiz 1, Recitation"
                 value={newItem.name}
                 onChange={e => setNewItem({...newItem, name: e.target.value})}
-                className="w-full border border-gray-300 p-2 rounded focus:outline-none focus:border-red-900"
+                className="w-full border border-gray-300 p-2 rounded focus:outline-none focus:border-red-900 disabled:bg-gray-100 disabled:cursor-not-allowed text-gray-800"
               />
             </div>
             <div>
@@ -166,16 +229,22 @@ export default function ManageGradeItems() {
               <input 
                 type="number" 
                 required 
+                disabled={!isEditable}
                 min="1"
+                step="1"
                 placeholder="e.g. 20, 50, 100"
                 value={newItem.max}
-                onChange={e => setNewItem({...newItem, max: e.target.value})}
-                className="w-full border border-gray-300 p-2 rounded focus:outline-none focus:border-red-900"
+                onChange={e => {
+                  const val = e.target.value.replace(/\D/g, ''); 
+                  setNewItem({...newItem, max: val});
+                }}
+                className="w-full border border-gray-300 p-2 rounded focus:outline-none focus:border-red-900 disabled:bg-gray-100 disabled:cursor-not-allowed text-gray-800 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               />
             </div>
             <button 
               type="submit" 
-              className="w-full bg-green-700 text-white font-bold py-2 rounded shadow hover:bg-green-800 transition mt-2"
+              disabled={!isEditable}
+              className="w-full bg-green-700 text-white font-bold py-2 rounded shadow hover:bg-green-800 transition mt-2 disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
               + Create Item
             </button>
@@ -197,12 +266,12 @@ export default function ManageGradeItems() {
                 </tr>
               </thead>
               <tbody>
-                {items.length === 0 ? (
+                {sortedItems.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="p-8 text-center text-gray-500 italic">No items created for this trimester yet.</td>
                   </tr>
                 ) : (
-                  items.map(item => (
+                  sortedItems.map(item => (
                     <tr key={item.id} className="border-b border-gray-200 hover:bg-gray-50">
                       <td className="p-3 font-bold text-gray-600">
                         <span className={`px-2 py-1 rounded text-xs ${
@@ -214,11 +283,14 @@ export default function ManageGradeItems() {
                         </span>
                       </td>
                       <td className="p-3 font-semibold text-gray-800">{item.item_name}</td>
-                      <td className="p-3 text-center font-mono font-bold text-gray-700">{item.max_score}</td>
+                      <td className="p-3 text-center font-mono font-bold text-gray-700">
+                        {parseFloat(item.max_score).toFixed(0)}
+                      </td>
                       <td className="p-3 text-center">
                         <button 
                           onClick={() => handleDeleteItem(item.id)}
-                          className="text-red-500 hover:text-red-700 hover:bg-red-50 font-bold px-2 py-1 rounded transition text-xs border border-transparent hover:border-red-200"
+                          disabled={!isEditable}
+                          className="text-red-500 hover:text-red-700 hover:bg-red-50 font-bold px-2 py-1 rounded transition text-xs border border-transparent hover:border-red-200 disabled:text-gray-400 disabled:hover:bg-transparent disabled:hover:border-transparent disabled:cursor-not-allowed"
                         >
                           Delete
                         </button>
