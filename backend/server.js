@@ -492,11 +492,24 @@ app.get('/api/admin/sections', verifyToken, requireRole(ROLES.ADMIN), async (req
 });
 
 app.post('/api/admin/sections', verifyToken, requireRole(ROLES.ADMIN), async (req, res) => {
-    const { section_name, grade_level } = req.body;
+    const { section_name, grade_level, is_star_section } = req.body;
     try {
+        // --- NEW TRAP: Check if a star section already exists for this grade ---
+        if (is_star_section) {
+            const existingStar = await pool.query(
+                `SELECT section_name FROM sections WHERE grade_level = $1 AND is_star_section = TRUE`,
+                [grade_level]
+            );
+            if (existingStar.rows.length > 0) {
+                return res.status(400).json({ 
+                    error: `Grade ${grade_level} already has a star section (${existingStar.rows[0].section_name}). Only one is allowed.` 
+                });
+            }
+        }
+
         const result = await pool.query(
-            `INSERT INTO sections (section_name, grade_level) VALUES ($1, $2) RETURNING *`,
-            [section_name, grade_level]
+            `INSERT INTO sections (section_name, grade_level, is_star_section) VALUES ($1, $2, $3) RETURNING *`,
+            [section_name, grade_level, is_star_section || false]
         );
         res.json({ success: true, section: result.rows[0], message: "Section added successfully!" });
     } catch (err) {
@@ -508,11 +521,24 @@ app.post('/api/admin/sections', verifyToken, requireRole(ROLES.ADMIN), async (re
 
 app.put('/api/admin/sections/:id', verifyToken, requireRole(ROLES.ADMIN), async (req, res) => {
     const { id } = req.params;
-    const { section_name, grade_level } = req.body;
+    const { section_name, grade_level, is_star_section } = req.body;
     try {
+        // --- NEW TRAP: Check if another star section already exists for this grade ---
+        if (is_star_section) {
+            const existingStar = await pool.query(
+                `SELECT section_name FROM sections WHERE grade_level = $1 AND is_star_section = TRUE AND id != $2`,
+                [grade_level, id]
+            );
+            if (existingStar.rows.length > 0) {
+                return res.status(400).json({ 
+                    error: `Grade ${grade_level} already has a star section (${existingStar.rows[0].section_name}). Only one is allowed.` 
+                });
+            }
+        }
+
         const result = await pool.query(
-            `UPDATE sections SET section_name = $1, grade_level = $2 WHERE id = $3 RETURNING *`,
-            [section_name, grade_level, id]
+            `UPDATE sections SET section_name = $1, grade_level = $2, is_star_section = $3 WHERE id = $4 RETURNING *`,
+            [section_name, grade_level, is_star_section || false, id]
         );
         if (result.rows.length === 0) return res.status(404).json({ error: "Section not found." });
         res.json({ success: true, section: result.rows[0], message: "Section updated successfully!" });
@@ -521,7 +547,6 @@ app.put('/api/admin/sections/:id', verifyToken, requireRole(ROLES.ADMIN), async 
         res.status(500).json({ error: "Failed to update section." });
     }
 });
-
 app.delete('/api/admin/sections/:id', verifyToken, requireRole(ROLES.ADMIN), async (req, res) => {
     const { id } = req.params;
     try {

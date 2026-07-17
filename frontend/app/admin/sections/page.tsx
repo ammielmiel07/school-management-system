@@ -6,6 +6,7 @@ interface Section {
   id: number;
   section_name: string;
   grade_level: string;
+  is_star_section: boolean; // Added property
 }
 
 export default function AdminSections() {
@@ -14,7 +15,7 @@ export default function AdminSections() {
   
   // Add State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [newSection, setNewSection] = useState({ section_name: "", grade_level: "" });
+  const [newSection, setNewSection] = useState({ section_name: "", grade_level: "", is_star_section: false });
 
   // Edit State
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -54,7 +55,7 @@ export default function AdminSections() {
       });
       if (res.ok) {
         setIsAddModalOpen(false);
-        setNewSection({ section_name: "", grade_level: "" });
+        setNewSection({ section_name: "", grade_level: "", is_star_section: false });
         fetchSections();
       } else {
         alert("Failed to add section");
@@ -152,7 +153,14 @@ export default function AdminSections() {
                 sections.map(sec => (
                   <tr key={sec.id} className="border-b border-gray-200 hover:bg-gray-50">
                     <td className="p-4 font-semibold text-gray-800">{sec.grade_level}</td>
-                    <td className="p-4 text-gray-600">{sec.section_name}</td>
+                    <td className="p-4 text-gray-600 flex items-center gap-2">
+                      {sec.section_name}
+                      {sec.is_star_section && (
+                        <span className="bg-yellow-100 text-yellow-800 text-xs font-bold px-2 py-0.5 rounded border border-yellow-200">
+                          ⭐ Star Section
+                        </span>
+                      )}
+                    </td>
                     <td className="p-4 text-center">
                       <button 
                         onClick={() => openEditModal(sec)}
@@ -183,12 +191,18 @@ export default function AdminSections() {
             <form onSubmit={handleAddSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1">Grade Level</label>
-                <input 
-                  type="text" required placeholder="e.g., Grade 10"
+                <select 
+                  required 
                   value={newSection.grade_level} 
                   onChange={e => setNewSection({...newSection, grade_level: e.target.value})}
-                  className="w-full border p-2 rounded focus:outline-none focus:border-blue-500" 
-                />
+                  className="w-full border p-2 rounded focus:outline-none focus:border-blue-500 bg-white" 
+                >
+                  <option value="" disabled>Select Grade Level</option>
+                  <option value="7">Grade 7</option>
+                  <option value="8">Grade 8</option>
+                  <option value="9">Grade 9</option>
+                  <option value="10">Grade 10</option>
+                </select>
               </div>
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1">Section Name</label>
@@ -198,6 +212,19 @@ export default function AdminSections() {
                   onChange={e => setNewSection({...newSection, section_name: e.target.value})}
                   className="w-full border p-2 rounded focus:outline-none focus:border-blue-500" 
                 />
+              </div>
+              
+              <div className="flex items-center mt-2">
+                <input 
+                  type="checkbox" 
+                  id="add-star-section"
+                  checked={newSection.is_star_section}
+                  onChange={e => setNewSection({...newSection, is_star_section: e.target.checked})}
+                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <label htmlFor="add-star-section" className="ml-2 block text-sm font-bold text-gray-700">
+                  Designate as Star Section
+                </label>
               </div>
               
               <div className="flex justify-end gap-2 mt-6">
@@ -228,12 +255,18 @@ export default function AdminSections() {
             <form onSubmit={handleEditSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1">Grade Level</label>
-                <input 
-                  type="text" required 
+                <select 
+                  required 
                   value={editSection.grade_level} 
                   onChange={e => setEditSection({...editSection, grade_level: e.target.value})}
-                  className="w-full border p-2 rounded focus:outline-none focus:border-blue-500" 
-                />
+                  className="w-full border p-2 rounded focus:outline-none focus:border-blue-500 bg-white" 
+                >
+                  <option value="" disabled>Select Grade Level</option>
+                  <option value="7">Grade 7</option>
+                  <option value="8">Grade 8</option>
+                  <option value="9">Grade 9</option>
+                  <option value="10">Grade 10</option>
+                </select>
               </div>
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1">Section Name</label>
@@ -243,6 +276,19 @@ export default function AdminSections() {
                   onChange={e => setEditSection({...editSection, section_name: e.target.value})}
                   className="w-full border p-2 rounded focus:outline-none focus:border-blue-500" 
                 />
+              </div>
+
+              <div className="flex items-center mt-2">
+                <input 
+                  type="checkbox" 
+                  id="edit-star-section"
+                  checked={editSection.is_star_section}
+                  onChange={e => setEditSection({...editSection, is_star_section: e.target.checked})}
+                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <label htmlFor="edit-star-section" className="ml-2 block text-sm font-bold text-gray-700">
+                  Designate as Star Section
+                </label>
               </div>
               
               <div className="flex justify-end gap-2 mt-6">
