@@ -3,6 +3,18 @@
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect } from "react";
+import { Raleway, Inter } from "next/font/google";
+
+// Initialize fonts
+const raleway = Raleway({ subsets: ["latin"], weight: "700" });
+const inter = Inter({ subsets: ["latin"], weight: ["400", "500"] });
+
+// Organized navigation structure
+const navLinks = [
+  { href: "/faculty/dashboard", label: "Dashboard" },
+  { href: "/faculty/my-classes", label: "My Classes" },
+  { href: "/faculty/advisory", label: "Advisory Class" },
+];
 
 export default function FacultyLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -12,7 +24,7 @@ export default function FacultyLayout({ children }: { children: React.ReactNode 
     const token = localStorage.getItem("token");
     const roleId = localStorage.getItem("role_id");
 
-    // Role ID 2 is typically Faculty/Teacher
+    // Role ID 2 is Faculty/Teacher
     if (!token || roleId !== "2") {
       router.push("/login");
       return;
@@ -25,62 +37,66 @@ export default function FacultyLayout({ children }: { children: React.ReactNode 
   };
 
   return (
-    <div className="flex h-screen bg-gray-100">
-      <aside className="w-64 bg-[#3e0f0f] text-white flex flex-col">
-        <div className="p-6 text-center border-b border-[#5D1919]">
-          <div className="w-16 h-16 bg-white rounded-full mx-auto flex items-center justify-center mb-4">
+    <div className={`flex h-screen bg-gray-100 ${inter.className}`}>
+      
+      {/* The Maroon Sidebar */}
+      <aside className="w-64 flex flex-col shadow-xl" style={{ backgroundColor: "#3e0f0f" }}>
+        
+        {/* School Logo / Branding Area */}
+        <div className="flex flex-col items-center justify-center p-6 border-b border-red-900">
+          <div className="w-28 h-28 bg-white rounded-full flex items-center justify-center mb-4 overflow-hidden shadow-lg">
             <img 
                 src="/Prudencia-Logo.png" 
                 alt="School Logo" 
                 className="w-full h-full object-contain p-1" 
             />
           </div>
-          <h2 className="font-bold text-lg tracking-wider uppercase">Faculty Portal</h2>
+          <h2 className={`text-white text-xl tracking-wider uppercase ${raleway.className}`}>
+            Faculty Portal
+          </h2>
         </div>
 
-        <nav className="flex-1 px-4 py-6 space-y-2">
-          <div className="text-xs font-semibold text-red-300 uppercase tracking-wider mb-2 mt-4">Menu</div>
+        {/* Navigation Links */}
+        <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
+          <div className={`text-xs uppercase text-red-300 mb-3 tracking-wider ${raleway.className}`}>
+            Menu
+          </div>
           
-          <Link 
-            href="/faculty/dashboard" 
-            className={`block px-4 py-2 rounded transition ${
-              pathname === '/faculty/dashboard' 
-                ? 'bg-[#5D1919] text-white font-bold' 
-                : 'text-red-100 hover:bg-[#5D1919] hover:text-white'
-            }`}
-          >
-            Dashboard
-          </Link>
-          <Link 
-            href="/faculty/my-classes" 
-            className={`block px-4 py-2 rounded transition ${
-              pathname === '/faculty/my-classes' 
-                ? 'bg-[#5D1919] text-white font-bold' 
-                : 'text-red-100 hover:bg-[#5D1919] hover:text-white'
-            }`}
-          >
-            My Classes
-          </Link>
-          <Link 
-            href="/faculty/advisory" 
-            className={`block px-4 py-2 rounded transition ${
-              pathname === '/faculty/advisory' 
-                ? 'bg-[#5D1919] text-white font-bold' 
-                : 'text-red-100 hover:bg-[#5D1919] hover:text-white'
-            }`}
-          >
-            Advisory Class
-          </Link>
+          <ul className="space-y-1">
+            {navLinks.map((link, index) => {
+              const isActive = pathname === link.href;
+              return (
+                <li key={index}>
+                  <Link 
+                    href={link.href} 
+                    className={`block px-3 py-2 rounded-md transition-colors duration-200 font-medium ${
+                      isActive 
+                        ? 'bg-red-900 text-white' 
+                        : 'text-gray-300 hover:bg-red-900 hover:text-white'
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
         </nav>
 
-        <div className="p-4 border-t border-[#5D1919]">
-          <button onClick={handleLogout} className="w-full px-4 py-2 text-left text-red-100 hover:text-white hover:bg-[#5D1919] rounded transition">
-            Sign Out
+        {/* Bottom Profile / Logout Area */}
+        <div className="p-4 border-t border-red-900">
+          <button 
+            onClick={handleLogout} 
+            className="w-full text-left px-3 py-2 text-gray-300 rounded-md hover:bg-red-900 hover:text-white transition-colors duration-200 font-medium"
+          >
+            Log Out
           </button>
         </div>
       </aside>
 
+      {/* The Main Content Area */}
       <main className="flex-1 overflow-y-auto">{children}</main>
+      
     </div>
   );
 }

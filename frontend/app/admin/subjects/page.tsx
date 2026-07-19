@@ -127,7 +127,7 @@ export default function AdminSubjects() {
         <h1 className="text-3xl font-bold text-gray-800">Manage Subjects</h1>
         <button 
           onClick={() => setIsAddModalOpen(true)}
-          className="bg-green-700 text-white px-4 py-2 rounded shadow hover:bg-green-800 font-bold"
+          className="bg-green-700 text-white px-4 py-2 rounded shadow hover:bg-green-800 font-bold transition-colors"
         >
           + Add Subject
         </button>
@@ -149,24 +149,26 @@ export default function AdminSubjects() {
             </thead>
             <tbody>
               {subjects.map(sub => (
-                <tr key={sub.id} className="border-b border-gray-200 hover:bg-gray-50">
+                <tr key={sub.id} className="border-b border-gray-200 hover:bg-gray-50 transition-colors">
                   <td className="p-4 font-semibold text-gray-800">{sub.subject_name}</td>
                   <td className="p-4 text-center text-gray-600">{sub.ww_weight}%</td>
                   <td className="p-4 text-center text-gray-600">{sub.pt_weight}%</td>
                   <td className="p-4 text-center text-gray-600">{sub.ex_weight}%</td>
-                  <td className="p-4 text-center">
-                    <button 
-                      onClick={() => openEditModal(sub)}
-                      className="text-blue-600 hover:text-blue-800 font-semibold mr-4 px-2 py-1 border border-blue-600 rounded"
-                    >
-                      Edit
-                    </button>
-                    <button 
-                      onClick={() => handleDelete(sub.id)}
-                      className="text-red-600 hover:text-red-800 font-semibold px-2 py-1 border border-red-600 rounded"
-                    >
-                      Delete
-                    </button>
+                  <td className="p-4">
+                    <div className="flex items-center justify-center gap-3">
+                      <button 
+                        onClick={() => openEditModal(sub)}
+                        className="text-blue-600 hover:text-white hover:bg-blue-600 font-semibold px-3 py-1.5 border border-blue-600 rounded-md transition-colors text-sm"
+                      >
+                        Edit
+                      </button>
+                      <button 
+                        onClick={() => handleDelete(sub.id)}
+                        className="text-red-600 hover:text-white hover:bg-red-600 font-semibold px-3 py-1.5 border border-red-600 rounded-md transition-colors text-sm"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -177,7 +179,7 @@ export default function AdminSubjects() {
 
       {/* ADD MODAL */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md">
             <h2 className="text-xl font-bold mb-4 text-gray-800">Add New Subject</h2>
             <form onSubmit={handleAddSubmit} className="space-y-4">
@@ -223,13 +225,13 @@ export default function AdminSubjects() {
                 <button 
                   type="button" 
                   onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 text-gray-600 bg-gray-200 rounded hover:bg-gray-300 font-bold"
+                  className="px-4 py-2 text-gray-600 bg-gray-200 rounded hover:bg-gray-300 font-bold transition-colors"
                 >
                   Cancel
                 </button>
                 <button 
                   type="submit" 
-                  className="px-4 py-2 bg-green-700 text-white rounded hover:bg-green-800 font-bold"
+                  className="px-4 py-2 bg-green-700 text-white rounded hover:bg-green-800 font-bold transition-colors"
                 >
                   Save Subject
                 </button>
@@ -241,7 +243,7 @@ export default function AdminSubjects() {
 
       {/* EDIT MODAL */}
       {isEditModalOpen && editSubject && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md">
             <h2 className="text-xl font-bold mb-4 text-gray-800">Edit Subject</h2>
             <form onSubmit={handleEditSubmit} className="space-y-4">
@@ -287,13 +289,13 @@ export default function AdminSubjects() {
                 <button 
                   type="button" 
                   onClick={() => setIsEditModalOpen(false)}
-                  className="px-4 py-2 text-gray-600 bg-gray-200 rounded hover:bg-gray-300 font-bold"
+                  className="px-4 py-2 text-gray-600 bg-gray-200 rounded hover:bg-gray-300 font-bold transition-colors"
                 >
                   Cancel
                 </button>
                 <button 
                   type="submit" 
-                  className="px-4 py-2 bg-[#3e0f0f] text-white rounded hover:bg-red-900 font-bold"
+                  className="px-4 py-2 bg-[#3e0f0f] text-white rounded hover:bg-red-900 font-bold transition-colors"
                 >
                   Update Changes
                 </button>

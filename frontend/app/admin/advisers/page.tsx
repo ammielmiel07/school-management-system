@@ -83,6 +83,29 @@ export default function AdminAdvisers() {
     }
   };
 
+  // --- NEW: Handle Removing an Adviser ---
+  const handleRemoveAdviser = async (sectionId: number) => {
+    if (!window.confirm("Are you sure you want to remove the current adviser from this section?")) return;
+
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`http://localhost:5000/api/admin/sections/advisers/${sectionId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      const data = await res.json();
+      if (res.ok) {
+        fetchAdvisers(); // Refresh the table
+        alert(data.message);
+      } else {
+        alert(data.error);
+      }
+    } catch (err) {
+      alert("Server error.");
+    }
+  };
+
   return (
     <div className="p-8 max-w-5xl mx-auto">
       <div className="flex justify-between items-center mb-8">
@@ -118,12 +141,24 @@ export default function AdminAdvisers() {
                     )}
                   </td>
                   <td className="p-4 text-center">
-                    <button 
-                      onClick={() => openAssignModal(sec)}
-                      className="text-blue-600 hover:text-blue-800 font-semibold px-3 py-1 border border-blue-600 rounded transition"
-                    >
-                      {sec.last_name ? "Change Adviser" : "Assign Adviser"}
-                    </button>
+                    <div className="flex items-center justify-center gap-2">
+                      <button 
+                        onClick={() => openAssignModal(sec)}
+                        className="text-blue-600 hover:text-blue-800 font-semibold px-3 py-1 border border-blue-600 rounded transition"
+                      >
+                        {sec.last_name ? "Change Adviser" : "Assign Adviser"}
+                      </button>
+                      
+                      {/* --- NEW: Remove Button (Only renders if an adviser exists) --- */}
+                      {sec.last_name && (
+                        <button 
+                          onClick={() => handleRemoveAdviser(sec.id)}
+                          className="text-red-600 hover:text-red-800 font-semibold px-3 py-1 border border-red-600 rounded transition"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

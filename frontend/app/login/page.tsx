@@ -1,20 +1,25 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation"; // We use this to redirect the user after login
+import { useRouter } from "next/navigation";
+import Link from "next/link"; 
+import { Raleway, Inter } from "next/font/google";
+
+// Initialize the fonts
+const raleway = Raleway({ subsets: ["latin"], weight: "900" }); // Bold
+const inter = Inter({ subsets: ["latin"], weight: "400" });   // Regular
 
 export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState(""); // Stores any error messages from the backend
+  const [error, setError] = useState("");
   const router = useRouter(); 
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(""); // Clear previous errors
+    setError("");
 
     try {
-      // 1. Send the data to your Node.js backend
       const res = await fetch("http://localhost:5000/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -24,18 +29,15 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (res.ok) {
-        // NEW: Intercept the login if a reset is required
         if (data.requires_reset) {
-          localStorage.setItem("reset_token", data.token); // Store temporary token
-          router.push("/setup-password"); // Redirect to the new password page
+          localStorage.setItem("reset_token", data.token);
+          router.push("/setup-password");
           return;
         }
 
-        // STANDARD LOGIN FLOW (If no reset is required)
         localStorage.setItem("token", data.token);
         localStorage.setItem("role_id", data.user.role_id);
         
-        // Redirect based on role...
         if (data.user.role_id === 1) router.push("/admin/dashboard");
         else if (data.user.role_id === 2) router.push("/faculty/dashboard");
         else if (data.user.role_id === 3) router.push("/learner/dashboard");
@@ -50,11 +52,26 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="bg-white p-8 rounded-lg shadow-md w-96">
-        <h2 className="text-2xl font-bold text-center mb-6 text-gray-800">School Portal</h2>
+    <div 
+      className="min-h-screen flex items-center justify-center bg-gray-100 bg-cover bg-center bg-no-repeat relative"
+      style={{ backgroundImage: "url('/school-bg.png')" }}
+    >
+      {/* Dark overlay to make the login form stand out */}
+      <div className="absolute inset-0 bg-black/40"></div>
+
+      {/* Login Box - Added z-10 relative to sit above the overlay */}
+      <div className="bg-white p-8 rounded-lg shadow-md w-96 relative z-10">
         
-        {/* If there is an error, display it in a red box */}
+        {/* Updated Title with Raleway and Maroon color */}
+        <h2 className={`text-3xl text-center font-weight-bold mb-3 text-[#333333] ${raleway.className}`}>
+          WELCOME TO POMS
+        </h2>
+        
+        {/* Updated Sub-title with Inter */}
+        <h3 className={`text-center mb-4 text-gray-500 text-xs leading-relaxed ${inter.className}`}>
+          PRUDENCIA D. FULE MEMORIAL NATIONAL HIGH SCHOOL ONLINE MANAGEMENT SYSTEM
+        </h3>
+        
         {error && (
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4 text-sm text-center">
             {error}
@@ -68,7 +85,7 @@ export default function LoginPage() {
               type="text" 
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:border-[#800000]"
               required
             />
           </div>
@@ -79,17 +96,25 @@ export default function LoginPage() {
               type="password" 
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:border-[#800000]"
               required
             />
           </div>
-          
+
+          {/* Updated Login Button to Maroon */}
           <button 
             type="submit" 
-            className="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700 transition duration-200"
+            className="w-full bg-[#3e0f0f] text-white font-bold py-2 px-4 rounded hover:bg-[#600000] transition duration-200 mt-2"
           >
             Log In
           </button>
+
+          {/* Updated Forgot Password Link to Maroon */}
+          <div className="flex justify-center mt-1 mb-2">
+            <Link href="/forgot-password" className="text-sm text-[#800000] hover:text-[#600000] hover:underline transition">
+              Forgot Password?
+            </Link>
+          </div>
         </form>
       </div>
     </div>

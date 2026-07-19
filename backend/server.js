@@ -233,6 +233,106 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
+app.post('/api/auth/forgot-password', async (req, res) => {
+    try {
+        const { username } = req.body;
+
+        if (!username) {
+            return res.status(400).json({ error: "Username is required." });
+        }
+
+        // 1. Find the user
+        const userResult = await pool.query('SELECT id, role_id, username FROM users WHERE username = $1', [username]);
+        
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ error: "Account not found." });
+        }
+
+        const user = userResult.rows[0];
+        let userEmail = null;
+
+        // 2. Find their email based on their role
+        if (user.role_id === ROLES.ADMIN) {
+            return res.status(403).json({ error: "Admin accounts cannot be reset online. Please contact IT support." });
+        } 
+        else if (user.role_id === ROLES.FACULTY) {
+            const profile = await pool.query('SELECT email FROM faculty_profiles WHERE user_id = $1', [user.id]);
+            if (profile.rows.length > 0) userEmail = profile.rows[0].email;
+        } 
+        else if (user.role_id === ROLES.LEARNER) {
+            const profile = await pool.query('SELECT email FROM learner_profiles WHERE user_id = $1', [user.id]);
+            if (profile.rows.length > 0) userEmail = profile.rows[0].email;
+        } 
+        else if (user.role_id === ROLES.PARENT) {
+            // For parents, we send the reset to the email registered on the linked learner's profile
+            const profile = await pool.query(`
+                SELECT l.email 
+                FROM parent_profiles p
+                JOIN learner_profiles l ON p.linked_lrn = l.lrn
+                WHERE p.user_id = $1
+            `, [user.id]);
+            if (profile.rows.length > 0) userEmail = profile.rows[0].email;
+        }
+
+        if (!userEmail) {
+            return res.status(400).json({ error: "No email address is associated with this account. Please contact the registrar." });
+        }
+
+        // 3. Generate a secure temporary password
+        const tempPassword = Math.random().toString(36).slice(-10) + "Ff4!";
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(tempPassword, salt);
+
+        // 4. Update the database and flag for forced password change
+        await pool.query(
+            'UPDATE users SET password_hash = $1, requires_password_change = TRUE WHERE id = $2',
+            [hashedPassword, user.id]
+        );
+
+        // 5. Send the email
+        const mailOptions = {
+            from: '"JLT Dev Team" <thelasalyans.capstone@gmail.com>', 
+            to: userEmail, 
+            subject: 'Password Reset Request | POMS',
+            html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+                <div style="background-color: #990000; padding: 20px; border-radius: 8px 8px 0 0;">
+                    <h2 style="color: white; margin: 0; font-size: 20px;">Password Reset Request</h2>
+                </div>
+                
+                <div style="background-color: #ffffff; padding: 30px; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 8px 8px;">
+                    <p style="margin-top: 0;">Greetings!</p>
+                    <p>We received a request to reset the password for your POMS account (Username: <strong>${user.username}</strong>).</p>
+                    
+                    <div style="background-color: #f9f9fb; border: 1px solid #dcdcdc; border-radius: 6px; padding: 15px; margin-bottom: 25px;">
+                        <p style="margin: 0 0 10px 0; font-weight: bold; font-size: 15px;">Your Temporary Password</p>
+                        <p style="margin: 5px 0; font-size: 18px; color: #990000; font-weight: bold;">${tempPassword}</p>
+                    </div>
+
+                    <p style="font-size: 14px;">Please log in using this temporary password. You will be immediately prompted to create a new, secure password.</p>
+                    <p style="font-size: 14px;">If you did not request this reset, please contact the school administration immediately.</p>
+                    
+                    <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0 15px 0;" />
+                    <p style="font-size: 11px; text-align: center; color: #888; margin: 0;">
+                        This is an automated notification from POMS (PDFMNHS Online Management System).<br/>Please do not reply to this email.
+                    </p>
+                </div>
+            </div>
+            `
+        };
+
+        transporter.sendMail(mailOptions, (error, info) => {
+            if (error) console.error("Password reset email failed to send:", error);
+        });
+
+        res.json({ success: true, message: "A temporary password has been sent to your registered email address." });
+
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "An error occurred while processing your request." });
+    }
+});
+
 app.post('/api/auth/setup-password', verifyToken, async (req, res) => {
     try {
         const { newPassword } = req.body;
@@ -605,6 +705,20 @@ app.post('/api/admin/sections/advisers', verifyToken, requireRole(ROLES.ADMIN), 
 
         if (!school_year) return res.status(400).json({ error: "Current school year is not set." });
 
+        // --- NEW TRAP: Faculty can't have 2 or more advisory sections ---
+        const facultyAdvisoryCheck = await pool.query(
+            `SELECT s.section_name FROM section_advisories sa
+             JOIN sections s ON sa.section_id = s.id
+             WHERE sa.faculty_id = $1 AND sa.school_year = $2 AND sa.section_id != $3`,
+            [faculty_id, school_year, section_id]
+        );
+
+        if (facultyAdvisoryCheck.rows.length > 0) {
+            return res.status(400).json({ 
+                error: `This faculty is already assigned as the adviser for section ${facultyAdvisoryCheck.rows[0].section_name}. A faculty can only handle one advisory class.` 
+            });
+        }
+
         await pool.query(`
             INSERT INTO section_advisories (section_id, faculty_id, school_year) 
             VALUES ($1, $2, $3)
@@ -616,6 +730,32 @@ app.post('/api/admin/sections/advisers', verifyToken, requireRole(ROLES.ADMIN), 
     } catch (err) {
         console.error(err.message);
         res.status(500).json({ error: "Failed to assign adviser." });
+    }
+});
+
+app.delete('/api/admin/sections/advisers/:sectionId', verifyToken, requireRole(ROLES.ADMIN), async (req, res) => {
+    try {
+        const { sectionId } = req.params;
+        const settings = await getSystemSettings();
+        const school_year = settings?.current_school_year;
+
+        if (!school_year) return res.status(400).json({ error: "Current school year is not set." });
+
+        const result = await pool.query(
+            `DELETE FROM section_advisories 
+             WHERE section_id = $1 AND school_year = $2 
+             RETURNING *`,
+            [sectionId, school_year]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "No adviser is currently assigned to this section." });
+        }
+
+        res.json({ success: true, message: "Adviser removed successfully!" });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Failed to remove adviser." });
     }
 });
 
@@ -1023,6 +1163,18 @@ app.post('/api/admin/faculty-loads', verifyToken, requireRole(ROLES.ADMIN), asyn
         const school_year = settings?.current_school_year;
 
         if (!school_year) return res.status(400).json({ error: "Current school year is not set." });
+
+        // --- NEW TRAP: Max 7 loads per faculty ---
+        const loadCheck = await pool.query(
+            `SELECT COUNT(*) FROM faculty_loads WHERE faculty_id = $1 AND school_year = $2`,
+            [faculty_id, school_year]
+        );
+        
+        if (parseInt(loadCheck.rows[0].count) >= 7) {
+            return res.status(400).json({ 
+                error: "This faculty member has already reached the maximum limit of 7 loads for this school year." 
+            });
+        }
 
         await pool.query(
             `INSERT INTO faculty_loads (faculty_id, subject_id, section_id, school_year) 
