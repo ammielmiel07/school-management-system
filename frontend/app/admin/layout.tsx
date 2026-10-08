@@ -3,11 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Raleway, Inter } from "next/font/google";
 
-// Initialize fonts
-const raleway = Raleway({ subsets: ["latin"], weight: "700" });
-const inter = Inter({ subsets: ["latin"], weight: ["400", "500"] });
+const raleway = { className: "font-sans font-bold" };
+const inter = { className: "font-sans" };
 
 // Organized navigation structure for cleaner and more maintainable code
 const navGroups = [

@@ -325,8 +325,14 @@ export default function AdminAccounts() {
               <hr />
               <div>
                 <span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Temporary Password</span>
-                <p className="font-mono text-xl font-bold text-red-600 bg-red-50 p-2 rounded inline-block mt-1">{generatedCreds.password}</p>
+                <p className="font-mono text-xl font-bold text-red-600 bg-red-50 p-2 rounded inline-block mt-1">{generatedCreds.learnerPassword || generatedCreds.password}</p>
               </div>
+              {generatedCreds.parentPassword && (
+                <div>
+                  <span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Parent Temporary Password</span>
+                  <p className="font-mono text-xl font-bold text-red-600 bg-red-50 p-2 rounded inline-block mt-1">{generatedCreds.parentPassword}</p>
+                </div>
+              )}
             </div>
 
             <button onClick={closeModals} className="w-full bg-gray-800 text-white font-bold py-3 rounded hover:bg-gray-900 transition">

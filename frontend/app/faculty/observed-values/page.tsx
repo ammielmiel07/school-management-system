@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 
 interface ObservedValuesData {
@@ -13,7 +13,7 @@ interface ObservedValuesData {
   mb_2: string;
 }
 
-export default function ManageObservedValues() {
+function ManageObservedValuesContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
@@ -285,5 +285,13 @@ export default function ManageObservedValues() {
       </div>
 
     </div>
+  );
+}
+
+export default function ManageObservedValues() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-gray-600">Loading observed values...</div>}>
+      <ManageObservedValuesContent />
+    </Suspense>
   );
 }

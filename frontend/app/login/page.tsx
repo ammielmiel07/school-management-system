@@ -3,11 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link"; 
-import { Raleway, Inter } from "next/font/google";
 
-// Initialize the fonts
-const raleway = Raleway({ subsets: ["latin"], weight: "900" }); // Bold
-const inter = Inter({ subsets: ["latin"], weight: "400" });   // Regular
+const raleway = { className: "font-sans font-black" };
+const inter = { className: "font-sans" };
 
 export default function LoginPage() {
   const [username, setUsername] = useState("");

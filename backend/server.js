@@ -20,8 +20,8 @@ const nodemailer = require('nodemailer');
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
-        user: 'thelasalyans.capstone@gmail.com', 
-        pass: 'aial dhox vvde fbtm'   
+        user: process.env.EMAIL_USER, 
+        pass: process.env.EMAIL_PASS   
     }
 });
 
@@ -35,7 +35,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Configure Multer Storage for Carousel Images
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        const dir = './uploads/carousel';
+        const dir = path.join(__dirname, 'uploads', 'carousel');
         if (!fs.existsSync(dir)){
             fs.mkdirSync(dir, { recursive: true });
         }
@@ -53,6 +53,8 @@ const ROLES = {
     LEARNER: 3,
     PARENT: 4
 };
+
+const emailFrom = process.env.EMAIL_FROM || process.env.EMAIL_USER || 'no-reply@poms.local';
 
 const requireRole = (...allowedRoles) => (req, res, next) => {
     if (!allowedRoles.includes(req.user.role_id)) {
@@ -291,7 +293,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 
         // 5. Send the email
         const mailOptions = {
-            from: '"JLT Dev Team" <thelasalyans.capstone@gmail.com>', 
+            from: emailFrom, 
             to: userEmail, 
             subject: 'Password Reset Request | POMS',
             html: `
@@ -855,7 +857,7 @@ app.post('/api/admin/accounts/learner', verifyToken, requireRole(ROLES.ADMIN), a
 
         // --- NEW LOGIC: SEND HTML EMAIL ---
         const mailOptions = {
-            from: '"JLT Dev Team" <thelasalyans.capstone@gmail.com>', // Sender display name
+            from: emailFrom,
             to: data.email, // Sent to the learner's email from the frontend form
             subject: 'Temporary Credentials for Learner & Parent | POMS',
             html: `
@@ -904,6 +906,13 @@ app.post('/api/admin/accounts/learner', verifyToken, requireRole(ROLES.ADMIN), a
         res.json({ 
             success: true, 
             message: "Learner and Parent accounts created! Credentials have been emailed.",
+            credentials: {
+                emailSentTo: data.email,
+                learnerUsername,
+                learnerPassword,
+                parentUsername,
+                parentPassword
+            }
         });
 
     } catch (err) {
@@ -942,7 +951,7 @@ app.post('/api/admin/accounts/faculty', verifyToken, requireRole(ROLES.ADMIN), a
 
         // --- NEW LOGIC: SEND HTML EMAIL FOR FACULTY ---
         const mailOptions = {
-            from: '"JLT Dev Team" <thelasalyans.capstone@gmail.com>', 
+            from: emailFrom, 
             to: data.email, 
             subject: 'Temporary Credentials for Faculty | POMS',
             html: `
@@ -985,6 +994,11 @@ app.post('/api/admin/accounts/faculty', verifyToken, requireRole(ROLES.ADMIN), a
         res.json({ 
             success: true, 
             message: "Faculty account created successfully! Credentials have been emailed.",
+            credentials: {
+                emailSentTo: data.email,
+                learnerUsername: facultyUsername,
+                password: generatedPassword
+            }
         });
 
     } catch (err) {
@@ -1003,6 +1017,16 @@ app.put('/api/admin/accounts/:id', verifyToken, requireRole(ROLES.ADMIN), async 
         await pool.query('BEGIN'); 
 
         if (data.lrn !== undefined) {
+            const previousLearner = await pool.query('SELECT lrn FROM learner_profiles WHERE user_id = $1', [id]);
+            if (previousLearner.rows.length === 0) {
+                await pool.query('ROLLBACK');
+                return res.status(404).json({ error: "Learner profile not found." });
+            }
+
+            const oldLrn = previousLearner.rows[0].lrn;
+            const parentProfile = await pool.query('SELECT user_id FROM parent_profiles WHERE linked_lrn = $1 LIMIT 1', [oldLrn]);
+            const parentUserId = parentProfile.rows[0]?.user_id;
+
             await pool.query('UPDATE users SET username = $1 WHERE id = $2', [data.lrn, id]);
             
             // 1. Update Profile and capture the profile ID (Added RETURNING id)
@@ -1071,11 +1095,10 @@ app.put('/api/admin/accounts/:id', verifyToken, requireRole(ROLES.ADMIN), async 
 
             // Update Parent Login and Profile Links
             const newParentUsername = `P-${data.lrn}`;
-            await pool.query(
-                `UPDATE users SET username = $1 WHERE id = (SELECT user_id FROM parent_profiles WHERE linked_lrn = $2 LIMIT 1)`,
-                [newParentUsername, data.lrn]
-            );
-            await pool.query('UPDATE parent_profiles SET linked_lrn = $1 WHERE linked_lrn = $2', [data.lrn, data.lrn]);
+            if (parentUserId) {
+                await pool.query('UPDATE users SET username = $1 WHERE id = $2', [newParentUsername, parentUserId]);
+                await pool.query('UPDATE parent_profiles SET linked_lrn = $1 WHERE user_id = $2', [data.lrn, parentUserId]);
+            }
             
         } else if (data.employeeNo !== undefined) {
             await pool.query('UPDATE users SET username = $1 WHERE id = $2', [data.employeeNo, id]);
@@ -1314,6 +1337,26 @@ app.delete('/api/admin/enrollments/:id', verifyToken, requireRole(ROLES.ADMIN), 
 // ==========================================
 //             FACULTY ROUTES
 // ==========================================
+
+app.get('/api/faculty/profile', verifyToken, requireRole(ROLES.FACULTY), async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT u.username, f.*
+            FROM users u
+            JOIN faculty_profiles f ON u.id = f.user_id
+            WHERE u.id = $1
+        `, [req.user.id]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Faculty profile not found." });
+        }
+
+        res.json({ success: true, faculty: result.rows[0] });
+    } catch (err) {
+        console.error("Fetch Faculty Profile Error:", err);
+        res.status(500).json({ error: "Failed to fetch faculty profile." });
+    }
+});
 
 app.get('/api/faculty/my-classes', verifyToken, requireRole(ROLES.FACULTY), async (req, res) => {
     try {
@@ -1628,9 +1671,9 @@ app.post('/api/faculty/save-grades', verifyToken, requireRole(ROLES.FACULTY), as
             )
             SELECT 
                 enrollment_id,
-                MAX(CASE WHEN component = 'WW' THEN (total_score / NULLIF(total_max, 0)) * $3 * 100 ELSE 0 END) as ww_ws,
-                MAX(CASE WHEN component = 'PT' THEN (total_score / NULLIF(total_max, 0)) * $4 * 100 ELSE 0 END) as pt_ws,
-                MAX(CASE WHEN component = 'EX' THEN (total_score / NULLIF(total_max, 0)) * $5 * 100 ELSE 0 END) as ex_ws
+                MAX(CASE WHEN component = 'WW' THEN (total_score / NULLIF(total_max, 0)) * $3 ELSE 0 END) as ww_ws,
+                MAX(CASE WHEN component = 'PT' THEN (total_score / NULLIF(total_max, 0)) * $4 ELSE 0 END) as pt_ws,
+                MAX(CASE WHEN component = 'EX' THEN (total_score / NULLIF(total_max, 0)) * $5 ELSE 0 END) as ex_ws
             FROM StudentComponentTotals
             GROUP BY enrollment_id
         `, [loadId, activeTrimester, ww_weight, pt_weight, ex_weight]);
@@ -1936,6 +1979,34 @@ app.get('/api/learner/grades', verifyToken, requireRole(ROLES.LEARNER), async (r
     } catch (err) {
         console.error(err.message);
         res.status(500).json({ error: "Failed to fetch learner grades." });
+    }
+});
+
+app.get('/api/parent/profile', verifyToken, requireRole(ROLES.PARENT), async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT 
+                u.username,
+                p.linked_lrn,
+                COALESCE(NULLIF(l.guardian_name, ''), 'Parent') AS first_name,
+                '' AS last_name,
+                l.first_name AS learner_first_name,
+                l.last_name AS learner_last_name
+            FROM users u
+            JOIN parent_profiles p ON u.id = p.user_id
+            LEFT JOIN learner_profiles l ON p.linked_lrn = l.lrn
+            WHERE u.id = $1
+            LIMIT 1
+        `, [req.user.id]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Parent profile not found." });
+        }
+
+        res.json({ success: true, parent: result.rows[0] });
+    } catch (err) {
+        console.error("Fetch Parent Profile Error:", err);
+        res.status(500).json({ error: "Failed to fetch parent profile." });
     }
 });
 
