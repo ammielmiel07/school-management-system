@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { apiFetch } from '@/lib/api';
+import { useEffect, useRef, useState } from "react";
 
 interface Learner {
   lrn: string;
@@ -11,6 +12,7 @@ interface Learner {
 interface Enrollment {
   section_name: string;
   grade_level: string | number;
+  grades_visible: boolean;
 }
 
 interface Grade {
@@ -42,16 +44,20 @@ export default function ParentDashboard() {
   const [trimester, setTrimester] = useState<number>(1);
   const [globalActiveTrimester, setGlobalActiveTrimester] = useState<number | null>(null);
 
+  const requestSequence = useRef(0);
   const fetchGrades = async (targetTri: number) => {
+    const requestId = ++requestSequence.current;
+    setError("");
     setLoading(true);
     const token = localStorage.getItem("token");
 
     try {
       // Appended the trimester variable to the API URL
-      const res = await fetch(`http://localhost:5000/api/parent/children-grades?trimester=${targetTri}`, {
+      const res = await apiFetch(`/api/parent/children-grades?trimester=${targetTri}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const payload = await res.json();
+      if (requestId !== requestSequence.current) return;
 
       if (!res.ok) {
         setError(payload.error || "Failed to load child grades.");
@@ -66,16 +72,16 @@ export default function ParentDashboard() {
         setTrimester(payload.active_trisemester); 
       }
     } catch {
-      setError("Cannot connect to the server.");
+      if (requestId === requestSequence.current) setError("Cannot connect to the server.");
     } finally {
-      setLoading(false);
+      if (requestId === requestSequence.current) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchGrades(trimester);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [trimester]);
 
   const handleTabChange = (tri: number) => {
     setTrimester(tri);
@@ -83,7 +89,7 @@ export default function ParentDashboard() {
   };
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <div className="max-w-6xl mx-auto">
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-800">Child Grades</h1>
@@ -93,7 +99,7 @@ export default function ParentDashboard() {
         </div>
 
         {/* Trimester Navigation Tabs */}
-        <div className="flex gap-2 mb-6 border-b border-gray-200 pb-4">
+        <div className="flex flex-wrap gap-2 mb-6 border-b border-gray-200 pb-4">
           {[1, 2, 3].map((tri) => (
             <button
               key={tri}
@@ -131,7 +137,7 @@ export default function ParentDashboard() {
         {!loading && !error && data && data.children.length > 0 && (
           <div className="space-y-8">
             {data.children.map((child) => (
-              <section key={child.learner?.lrn || "child"} className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+              <section key={child.learner?.lrn || "child"} className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-x-auto" tabIndex={0} aria-label="Child grades; scroll horizontally for all columns">
                 <div className="p-5 border-b border-gray-200 bg-gray-50">
                   <h2 className="text-xl font-bold text-gray-800">
                     {child.learner ? `${child.learner.last_name}, ${child.learner.first_name}` : "Learner profile not found"}
@@ -154,8 +160,10 @@ export default function ParentDashboard() {
                   <tbody>
                     {child.grades.length === 0 ? (
                       <tr>
-                        <td colSpan={4} className="p-8 text-center text-gray-500 italic">
-                          No grades have been posted for this trisemester yet.
+                        <td colSpan={4} className="p-4 sm:p-8 text-center text-gray-500 italic">
+                          {child.enrollment && !child.enrollment.grades_visible
+                            ? "Your child's grades have not been released by the adviser yet."
+                            : 'No grades have been posted for this trimester yet.'}
                         </td>
                       </tr>
                     ) : (
@@ -168,7 +176,7 @@ export default function ParentDashboard() {
                             <td className="p-4 font-bold text-gray-800">{grade.subject_name}</td>
                             <td className="p-4 text-gray-600 text-sm">{grade.faculty_first_name} {grade.faculty_last_name}</td>
                             <td className="p-4 text-center text-gray-500 font-mono">
-                               {grade.initial_grade ? parseFloat(String(grade.initial_grade)).toFixed(2) : "—"}
+                               {grade.initial_grade != null ? parseFloat(String(grade.initial_grade)).toFixed(2) : "—"}
                             </td>
                             <td className={`p-4 text-center font-extrabold text-lg ${finalScore ? (isPassed ? "text-[#147a3e]" : "text-red-600") : "text-gray-400"}`}>
                               {finalScore || "TBA"}

@@ -1,10 +1,14 @@
 "use client";
 
+import { apiFetch, notify } from '@/lib/api';
 import { useEffect, useState } from "react";
 
 export default function AdminAccounts() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [activeYear, setActiveYear] = useState("");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [userType, setUserType] = useState("learner");
   
@@ -14,7 +18,7 @@ export default function AdminAccounts() {
   // --- LEARNER STATE (SF1) ---
   const [learnerForm, setLearnerForm] = useState({
     lrn: "", birthdate: "", gender: "", firstName: "", middleName: "", lastName: "", email: "",
-    schoolYear: "2024-2025", gradeLevel: "7", isStarEligible: false,
+    schoolYear: "", gradeLevel: "7", isStarEligible: false,
     motherTongue: "", ip: "", religion: "",
     houseStreet: "", barangay: "", city: "", province: "",
     fatherFirst: "", fatherMiddle: "", fatherLast: "",
@@ -25,35 +29,50 @@ export default function AdminAccounts() {
   // --- NEW FACULTY STATE ---
   const [facultyForm, setFacultyForm] = useState({
     employeeNo: "", firstName: "", middleName: "", lastName: "", 
-    startSchoolYear: "2024-2025", 
+    startSchoolYear: "",
     email: "", contactNumber: ""
   });
 
   const fetchAccounts = async () => {
     setLoading(true);
+    setLoadError("");
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/api/admin/accounts", {
+      const res = await apiFetch("/api/admin/accounts", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       if (res.ok) setAccounts(data.accounts || []);
-    } catch (err) {
-      console.error("Failed to fetch accounts");
+      else setLoadError(data.error || 'Could not load accounts.');
+    } catch {
+      setLoadError('Could not load accounts. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { fetchAccounts(); }, []);
+  useEffect(() => {
+    fetchAccounts();
+    apiFetch('/api/settings', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
+      .then(async res => {
+        const data = await res.json();
+        if (!res.ok || !data.settings) return;
+        const year = data.settings.current_school_year;
+        setActiveYear(year);
+        setLearnerForm(form => ({ ...form, schoolYear: year }));
+        setFacultyForm(form => ({ ...form, startSchoolYear: year }));
+      }).catch(() => {});
+  }, []);
 
   const handleCreateLearner = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (learnerForm.lrn.length !== 12) return alert("LRN must be exactly 12 digits.");
+    if (saving) return;
+    if (!/^\d{12}$/.test(learnerForm.lrn)) return notify("LRN must be exactly 12 digits.", 'error');
+    setSaving(true);
 
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/api/admin/accounts/learner", {
+      const res = await apiFetch("/api/admin/accounts/learner", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(learnerForm),
@@ -64,20 +83,24 @@ export default function AdminAccounts() {
         setGeneratedCreds(data.credentials);
         fetchAccounts();
       } else {
-        alert(data.error || "Failed to create account.");
+        notify(data.error || "Failed to create account.", 'error');
       }
-    } catch (err) {
-      alert("Server error.");
+    } catch {
+      notify("Server error.", 'error');
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleCreateFaculty = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (facultyForm.employeeNo.length > 7) return alert("Employee Number cannot exceed 7 digits.");
+    if (saving) return;
+    if (!/^\d{1,7}$/.test(facultyForm.employeeNo)) return notify("Employee Number must contain 1 to 7 digits.", 'error');
+    setSaving(true);
 
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/api/admin/accounts/faculty", {
+      const res = await apiFetch("/api/admin/accounts/faculty", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(facultyForm),
@@ -88,10 +111,12 @@ export default function AdminAccounts() {
         setGeneratedCreds(data.credentials);
         fetchAccounts();
       } else {
-        alert(data.error || "Failed to create account.");
+        notify(data.error || "Failed to create account.", 'error');
       }
-    } catch (err) {
-      alert("Server error.");
+    } catch {
+      notify("Server error.", 'error');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -99,19 +124,19 @@ export default function AdminAccounts() {
     if (!window.confirm("Are you sure you want to delete this account? This will also remove their profile data.")) return;
 
     try {
-      const res = await fetch(`http://localhost:5000/api/admin/accounts/${id}`, {
+      const res = await apiFetch(`/api/admin/accounts/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       });
       const data = await res.json();
       if (res.ok) {
         fetchAccounts();
-        alert(data.message || "Account deleted!");
+        notify(data.message || "Account deleted!", 'success');
       } else {
-        alert(data.error);
+        notify(data.error, 'error');
       }
-    } catch (err) {
-      alert("Server error.");
+    } catch {
+      notify("Server error.", 'error');
     }
   };
 
@@ -130,7 +155,7 @@ export default function AdminAccounts() {
         // Dates from SQL come with timestamps, we split to just get YYYY-MM-DD for the input
         birthdate: acc.birthdate ? acc.birthdate.split('T')[0] : "", 
         gender: acc.gender || "",
-        schoolYear: acc.school_year || "2024-2025",
+        schoolYear: acc.school_year || activeYear,
         gradeLevel: acc.grade_level || "7",
         isStarEligible: acc.is_star_eligible || false,
         motherTongue: acc.mother_tongue || "",
@@ -158,7 +183,7 @@ export default function AdminAccounts() {
         middleName: acc.middle_name || "",
         lastName: acc.last_name || "",
         email: acc.email || "",
-        startSchoolYear: acc.start_school_year || "2024-2025",
+        startSchoolYear: acc.start_school_year || activeYear,
         contactNumber: acc.contact_number || ""
       });
     }
@@ -167,11 +192,13 @@ export default function AdminAccounts() {
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
+    setSaving(true);
     const payload = userType === "learner" ? learnerForm : facultyForm;
 
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`http://localhost:5000/api/admin/accounts/${editingUserId}`, {
+      const res = await apiFetch(`/api/admin/accounts/${editingUserId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(payload),
@@ -179,16 +206,18 @@ export default function AdminAccounts() {
       
       const data = await res.json();
       if (res.ok) {
-        alert("Account updated successfully!");
+        notify("Account updated successfully!", 'success');
         setIsEditModalOpen(false);
         setEditingUserId(null);
         fetchAccounts(); // Refresh the table
       } else {
-        alert(data.error || "Failed to update account.");
+        notify(data.error || "Failed to update account.", 'error');
       }
     } catch (err) {
       console.error("Full error detail:", err);
-      alert("Check the browser console! Error: " + err);
+      notify('Unable to update the account. Please try again.', 'error');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -199,13 +228,13 @@ export default function AdminAccounts() {
     setGeneratedCreds(null);
     setLearnerForm({
       lrn: "", birthdate: "", gender: "", firstName: "", middleName: "", lastName: "", email: "",
-      schoolYear: "2024-2025", gradeLevel: "7", isStarEligible: false,
+      schoolYear: activeYear, gradeLevel: "7", isStarEligible: false,
       motherTongue: "", ip: "", religion: "",
       houseStreet: "", barangay: "", city: "", province: "",
       fatherFirst: "", fatherMiddle: "", fatherLast: "", motherFirst: "", motherMiddle: "", motherLast: "",
       guardianName: "", guardianRelation: "", contactNumber: ""
     });
-    setFacultyForm({ employeeNo: "", firstName: "", middleName: "", lastName: "", startSchoolYear: "2024-2025", email: "", contactNumber: "" });
+    setFacultyForm({ employeeNo: "", firstName: "", middleName: "", lastName: "", startSchoolYear: activeYear, email: "", contactNumber: "" });
   };
 
   // Generate dynamic school years based on the current year
@@ -227,9 +256,9 @@ export default function AdminAccounts() {
   const [editingUserId, setEditingUserId] = useState<number | null>(null);
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-7xl mx-auto">
       {/* HEADER */}
-      <div className="flex justify-between items-center mb-8">
+      <div className="flex flex-col sm:flex-row sm:justify-between items-start sm:items-center gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-2">
             <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"></path></svg>
@@ -243,9 +272,11 @@ export default function AdminAccounts() {
       </div>
 
       {/* DATA TABLE */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white rounded-lg shadow overflow-x-auto">
         {loading ? (
-          <p className="p-8 text-center text-gray-500">Loading accounts...</p>
+          <p className="p-4 sm:p-8 text-center text-gray-500">Loading accounts...</p>
+        ) : loadError ? (
+          <div role="alert" className="p-6 text-red-700">{loadError} <button type="button" onClick={fetchAccounts} className="underline font-semibold ml-2">Retry</button></div>
         ) : (
           <table className="w-full text-left border-collapse">
             <thead>
@@ -260,7 +291,7 @@ export default function AdminAccounts() {
             <tbody>
               {accounts.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-8 text-center text-gray-500 italic">No accounts found.</td>
+                  <td colSpan={5} className="p-4 sm:p-8 text-center text-gray-500 italic">No accounts found.</td>
                 </tr>
               ) : (
                 accounts.map(acc => (
@@ -301,13 +332,15 @@ export default function AdminAccounts() {
 
       {/* ONE-TIME CREDENTIALS POPUP */}
       {generatedCreds && (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[60] p-4">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
           <div className="bg-white p-8 rounded-lg shadow-2xl w-full max-w-md text-center border-t-8 border-green-600">
             <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
             </div>
             <h2 className="text-2xl font-bold text-gray-800 mb-2">Account Created!</h2>
-            <p className="text-gray-600 text-sm mb-6">A temporary password has been generated and sent to <strong>{generatedCreds.emailSentTo}</strong>.</p>
+            <p className="text-gray-600 text-sm mb-6">{generatedCreds.emailSent
+              ? <>Temporary credentials were sent to <strong>{generatedCreds.emailSentTo}</strong>.</>
+              : <>Email delivery failed. Save these credentials and share them with the account holder.</>}</p>
             
             <div className="bg-gray-50 p-4 rounded text-left space-y-3 mb-6 border border-gray-200">
               <div>
@@ -336,7 +369,7 @@ export default function AdminAccounts() {
             </div>
 
             <button onClick={closeModals} className="w-full bg-gray-800 text-white font-bold py-3 rounded hover:bg-gray-900 transition">
-              Close & Return to Dashboard
+              Close & Return to Accounts
             </button>
           </div>
         </div>
@@ -344,7 +377,7 @@ export default function AdminAccounts() {
 
       {/* FIXED UI ADD USER MODAL */}
       {isAddModalOpen && !generatedCreds && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           
           {/* Modal Container: Flex Col, Max Height, Hidden Overflow */}
           <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl flex flex-col max-h-[90vh] overflow-hidden">
@@ -365,6 +398,7 @@ export default function AdminAccounts() {
               {/* LEARNER FORM (ID assigned so button outside can trigger it) */}
               {userType === "learner" && (
                 <form id="learner-form" onSubmit={handleCreateLearner} className="space-y-4">
+                  <fieldset disabled={saving} className="contents">
                   <details className="group border border-gray-300 rounded shadow-sm" open>
                     <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
                       1. Basic Identification <span className="text-gray-500">▼</span>
@@ -462,12 +496,13 @@ export default function AdminAccounts() {
                       <div><label className="block text-xs font-bold text-gray-700 mb-1">Contact Number *</label><input type="text" required value={learnerForm.contactNumber} onChange={e => setLearnerForm({...learnerForm, contactNumber: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
                     </div>
                   </details>
-                </form>
+                </fieldset></form>
               )}
 
               {/* UPGRADED FACULTY FORM (ID assigned so button outside can trigger it) */}
               {userType === "faculty" && (
                 <form id="faculty-form" onSubmit={handleCreateFaculty} className="space-y-4">
+                  <fieldset disabled={saving} className="contents">
                   <div className="bg-blue-50 p-4 rounded border border-blue-100 mb-4 text-sm text-blue-800">
                     ℹ️ The system will automatically generate a secure password and login credentials for this staff member.
                   </div>
@@ -509,19 +544,19 @@ export default function AdminAccounts() {
                       <div><label className="block text-xs font-bold text-gray-700 mb-1">Contact Number *</label><input type="text" required value={facultyForm.contactNumber} onChange={e => setFacultyForm({...facultyForm, contactNumber: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-red-900" /></div>
                     </div>
                   </details>
-                </form>
+                </fieldset></form>
               )}
             </div>
 
             {/* 3. FIXED FOOTER (Keeps buttons pinned to the bottom) */}
             <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end shrink-0 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
               {userType === "learner" ? (
-                <button type="submit" form="learner-form" className="bg-green-700 text-white font-bold py-2.5 px-6 rounded shadow-sm hover:bg-green-800 transition">
-                  Create Learner & Generate Credentials
+                <button type="submit" disabled={saving} form="learner-form" className="bg-green-700 text-white font-bold py-2.5 px-6 rounded shadow-sm hover:bg-green-800 transition">
+                  {saving ? 'Creating…' : 'Create Learner & Generate Credentials'}
                 </button>
               ) : (
-                <button type="submit" form="faculty-form" className="bg-[#3e0f0f] text-white font-bold py-2.5 px-6 rounded shadow-sm hover:bg-red-900 transition">
-                  Create Faculty & Generate Credentials
+                <button type="submit" disabled={saving} form="faculty-form" className="bg-[#3e0f0f] text-white font-bold py-2.5 px-6 rounded shadow-sm hover:bg-red-900 transition">
+                  {saving ? 'Creating…' : 'Create Faculty & Generate Credentials'}
                 </button>
               )}
             </div>
@@ -531,7 +566,7 @@ export default function AdminAccounts() {
       )}
       {/* EDIT USER MODAL */}
       {isEditModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl flex flex-col max-h-[90vh] overflow-hidden">
             
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-white shrink-0 z-10 shadow-sm">
@@ -542,6 +577,7 @@ export default function AdminAccounts() {
             <div className="p-6 overflow-y-auto flex-1 bg-gray-50/50">
                {userType === "learner" && (
                 <form id="edit-learner-form" onSubmit={handleUpdate} className="space-y-4">
+                  <fieldset disabled={saving} className="contents">
                   <details className="group border border-gray-300 rounded shadow-sm" open>
                     <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
                       1. Basic Identification <span className="text-gray-500">▼</span>
@@ -639,12 +675,13 @@ export default function AdminAccounts() {
                       <div><label className="block text-xs font-bold text-gray-700 mb-1">Contact Number</label><input type="text" value={learnerForm.contactNumber} onChange={e => setLearnerForm({...learnerForm, contactNumber: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
                     </div>
                   </details>
-                </form>
+                </fieldset></form>
               )}
 
               {/* UPGRADED FACULTY FORM */}
               {userType === "faculty" && (
                 <form id="edit-faculty-form" onSubmit={handleUpdate} className="space-y-4">
+                  <fieldset disabled={saving} className="contents">
                   <details className="group border border-gray-300 rounded shadow-sm" open>
                     <summary className="bg-gray-100 px-4 py-3 font-bold text-gray-800 cursor-pointer flex justify-between">
                       1. Basic Information <span className="text-gray-500">▼</span>
@@ -682,13 +719,13 @@ export default function AdminAccounts() {
                       <div><label className="block text-xs font-bold text-gray-700 mb-1">Contact Number</label><input type="text" value={facultyForm.contactNumber} onChange={e => setFacultyForm({...facultyForm, contactNumber: e.target.value})} className="w-full border p-2 rounded focus:outline-none focus:border-blue-600" /></div>
                     </div>
                   </details>
-                </form>
+                </fieldset></form>
               )}
             </div>
 
             <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end shrink-0 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-              <button type="submit" form={userType === "learner" ? "edit-learner-form" : "edit-faculty-form"} className="bg-blue-600 text-white font-bold py-2.5 px-6 rounded shadow-sm hover:bg-blue-700 transition">
-                Save Changes
+              <button type="submit" disabled={saving} form={userType === "learner" ? "edit-learner-form" : "edit-faculty-form"} className="bg-blue-600 text-white font-bold py-2.5 px-6 rounded shadow-sm hover:bg-blue-700 transition">
+                {saving ? 'Saving?' : 'Save Changes'}
               </button>
             </div>
 

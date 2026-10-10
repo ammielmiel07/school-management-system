@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch } from '@/lib/api';
 import { useState, useEffect } from "react";
 
 interface Section { id: number; section_name: string; grade_level: number; first_name: string | null; last_name: string | null; }
@@ -24,7 +25,7 @@ export default function ManageClasses() {
   const fetchPageData = async () => {
     const token = localStorage.getItem("token");
     try {
-      const response = await fetch("http://localhost:5000/api/admin/sections/advisers", {
+      const response = await apiFetch("/api/admin/sections/advisers", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await response.json();
@@ -33,7 +34,7 @@ export default function ManageClasses() {
         setFacultyList(data.faculty);
         setSchoolYear(data.active_school_year);
       }
-    } catch (err) {
+    } catch {
       setError("Failed to load page data.");
     }
   };
@@ -48,7 +49,7 @@ export default function ManageClasses() {
     const token = localStorage.getItem("token");
 
     try {
-      const response = await fetch("http://localhost:5000/api/admin/sections", {
+      const response = await apiFetch("/api/admin/sections", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ section_name: sectionName, grade_level: gradeLevel }),
@@ -61,7 +62,7 @@ export default function ManageClasses() {
       } else {
         setError(data.error || "Failed to add section.");
       }
-    } catch (err) {
+    } catch {
       setError("Server connection error.");
     }
   };
@@ -72,7 +73,7 @@ export default function ManageClasses() {
     const token = localStorage.getItem("token");
 
     try {
-      const response = await fetch("http://localhost:5000/api/admin/sections/advisers", {
+      const response = await apiFetch("/api/admin/sections/advisers", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ section_id: selectedSection, faculty_id: selectedFaculty, school_year: schoolYear }),
@@ -85,13 +86,13 @@ export default function ManageClasses() {
       } else {
         setError(data.error || "Failed to assign adviser.");
       }
-    } catch (err) {
+    } catch {
       setError("Server connection error.");
     }
   };
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <div className="max-w-6xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-800 mb-6 border-b pb-4">Manage Classes & Advisers</h1>
 

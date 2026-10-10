@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch, notify } from '@/lib/api';
 import { useEffect, useState } from "react";
 
 interface FacultyLoad {
@@ -29,12 +30,12 @@ export default function AdminFacultyLoads() {
     setLoading(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/api/admin/faculty-loads", {
+      const res = await apiFetch("/api/admin/faculty-loads", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       if (res.ok) setLoads(data.loads || []);
-    } catch (err) {
+    } catch {
       console.error("Failed to fetch loads");
     } finally {
       setLoading(false);
@@ -44,7 +45,7 @@ export default function AdminFacultyLoads() {
   const fetchFormData = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/api/admin/faculty-loads/form-data", {
+      const res = await apiFetch("/api/admin/faculty-loads/form-data", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -54,7 +55,7 @@ export default function AdminFacultyLoads() {
         setSectionList(data.sections);
         setActiveYear(data.active_school_year);
       }
-    } catch (err) {
+    } catch {
       console.error("Failed to fetch form data");
     }
   };
@@ -67,13 +68,13 @@ export default function AdminFacultyLoads() {
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newLoad.faculty_id || !newLoad.subject_id || !newLoad.section_id) {
-      alert("Please select a Faculty, Subject, and Section.");
+      notify("Please select a Faculty, Subject, and Section.", 'error');
       return;
     }
 
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/api/admin/faculty-loads", {
+      const res = await apiFetch("/api/admin/faculty-loads", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -87,12 +88,12 @@ export default function AdminFacultyLoads() {
         setIsAddModalOpen(false);
         setNewLoad({ faculty_id: "", subject_id: "", section_id: "" });
         fetchLoads();
-        alert(data.message);
+        notify(data.message, 'success');
       } else {
-        alert(data.error);
+        notify(data.error, 'error');
       }
-    } catch (err) {
-      alert("Server error.");
+    } catch {
+      notify("Server error.", 'error');
     }
   };
 
@@ -100,7 +101,7 @@ export default function AdminFacultyLoads() {
     if (!window.confirm("Are you sure you want to remove this teaching assignment?")) return;
 
     try {
-      const res = await fetch(`http://localhost:5000/api/admin/faculty-loads/${id}`, {
+      const res = await apiFetch(`/api/admin/faculty-loads/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       });
@@ -108,18 +109,18 @@ export default function AdminFacultyLoads() {
       
       if (res.ok) {
         fetchLoads();
-        alert(data.message);
+        notify(data.message, 'success');
       } else {
-        alert(data.error);
+        notify(data.error, 'error');
       }
-    } catch (err) {
-      alert("Server error.");
+    } catch {
+      notify("Server error.", 'error');
     }
   };
 
   return (
-    <div className="p-8 max-w-6xl mx-auto">
-      <div className="flex justify-between items-center mb-8">
+    <div className="p-4 sm:p-8 max-w-6xl mx-auto">
+      <div className="flex flex-col sm:flex-row sm:justify-between items-start sm:items-center gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-800">Faculty Loads</h1>
           <p className="text-gray-600 text-sm mt-1">Assign teachers to their subjects and sections for S.Y. {activeYear}</p>
@@ -132,9 +133,9 @@ export default function AdminFacultyLoads() {
         </button>
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white rounded-lg shadow overflow-x-auto">
         {loading ? (
-          <p className="p-8 text-center text-gray-500">Loading assignments...</p>
+          <p className="p-4 sm:p-8 text-center text-gray-500">Loading assignments...</p>
         ) : (
           <table className="w-full text-left border-collapse">
             <thead>
@@ -148,7 +149,7 @@ export default function AdminFacultyLoads() {
             <tbody>
               {loads.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="p-8 text-center text-gray-500 italic">No faculty loads assigned for this school year.</td>
+                  <td colSpan={4} className="p-4 sm:p-8 text-center text-gray-500 italic">No faculty loads assigned for this school year.</td>
                 </tr>
               ) : (
                 loads.map(load => (
@@ -174,9 +175,9 @@ export default function AdminFacultyLoads() {
 
       {/* ADD MODAL */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex flex-col sm:flex-row sm:justify-between items-start sm:items-center gap-4 mb-6">
               <h2 className="text-xl font-bold text-gray-800">Assign Teaching Load</h2>
             </div>
             

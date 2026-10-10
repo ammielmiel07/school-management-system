@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch } from '@/lib/api';
 import { useState } from "react";
 import Link from "next/link";
 
@@ -14,7 +15,7 @@ export default function ForgotPasswordPage() {
     setMessage("");
 
     try {
-      const res = await fetch("http://localhost:5000/api/auth/forgot-password", {
+      const res = await apiFetch("/api/auth/forgot-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username }),
@@ -29,9 +30,9 @@ export default function ForgotPasswordPage() {
         setStatus("error");
         setMessage(data.error || "Failed to process request.");
       }
-    } catch (err) {
+    } catch {
       setStatus("error");
-      setMessage("Cannot connect to the server. Is your backend running?");
+      setMessage("Unable to send the request. Please check your connection and try again.");
     }
   };
 
@@ -83,7 +84,7 @@ export default function ForgotPasswordPage() {
               className={`w-full font-bold py-2 px-4 rounded transition duration-200 text-white
                 ${status === "loading" ? "bg-blue-400 cursor-not-allowed" : "bg-[#3e0f0f] hover:bg-[#600000]"}`}
             >
-              {status === "loading" ? "Processing..." : "Send Reset Link"}
+              {status === "loading" ? "Processing..." : "Send Temporary Password"}
             </button>
 
             <div className="text-center mt-4">

@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch, notify } from '@/lib/api';
 import { useEffect, useState } from "react";
 
 interface Subject {
@@ -26,12 +27,12 @@ export default function AdminSubjects() {
     setLoading(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/api/admin/subjects", {
+      const res = await apiFetch("/api/admin/subjects", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       if (res.ok) setSubjects(data.subjects || data);
-    } catch (err) {
+    } catch {
       console.error("Failed to fetch subjects");
     } finally {
       setLoading(false);
@@ -46,7 +47,7 @@ export default function AdminSubjects() {
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch("http://localhost:5000/api/admin/subjects", {
+      const res = await apiFetch("/api/admin/subjects", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -59,10 +60,11 @@ export default function AdminSubjects() {
         setNewSubject({ subject_name: "", ww_weight: "", pt_weight: "", ex_weight: "" });
         fetchSubjects();
       } else {
-        alert("Failed to add subject");
+        const data = await res.json();
+        notify(data.error || "Failed to add subject", 'error');
       }
-    } catch (err) {
-      alert("Server error.");
+    } catch {
+      notify("Server error.", 'error');
     }
   };
 
@@ -77,7 +79,7 @@ export default function AdminSubjects() {
     if (!editSubject) return;
 
     try {
-      const res = await fetch(`http://localhost:5000/api/admin/subjects/${editSubject.id}`, {
+      const res = await apiFetch(`/api/admin/subjects/${editSubject.id}`, {
         method: "PUT",
         headers: { 
           "Content-Type": "application/json",
@@ -90,12 +92,12 @@ export default function AdminSubjects() {
       if (res.ok) {
         setIsEditModalOpen(false);
         fetchSubjects();
-        alert(data.message || "Subject updated!");
+        notify(data.message || "Subject updated!", 'success');
       } else {
-        alert(data.error);
+        notify(data.error, 'error');
       }
-    } catch (err) {
-      alert("Server error.");
+    } catch {
+      notify("Server error.", 'error');
     }
   };
 
@@ -104,7 +106,7 @@ export default function AdminSubjects() {
     if (!window.confirm("Are you sure you want to delete this subject?")) return;
 
     try {
-      const res = await fetch(`http://localhost:5000/api/admin/subjects/${id}`, {
+      const res = await apiFetch(`/api/admin/subjects/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       });
@@ -112,18 +114,18 @@ export default function AdminSubjects() {
       
       if (res.ok) {
         fetchSubjects();
-        alert(data.message || "Subject deleted!");
+        notify(data.message || "Subject deleted!", 'success');
       } else {
-        alert(data.error);
+        notify(data.error, 'error');
       }
-    } catch (err) {
-      alert("Server error.");
+    } catch {
+      notify("Server error.", 'error');
     }
   };
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
-      <div className="flex justify-between items-center mb-8">
+    <div className="p-4 sm:p-8 max-w-5xl mx-auto">
+      <div className="flex flex-col sm:flex-row sm:justify-between items-start sm:items-center gap-4 mb-8">
         <h1 className="text-3xl font-bold text-gray-800">Manage Subjects</h1>
         <button 
           onClick={() => setIsAddModalOpen(true)}
@@ -133,9 +135,9 @@ export default function AdminSubjects() {
         </button>
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white rounded-lg shadow overflow-x-auto">
         {loading ? (
-          <p className="p-8 text-center text-gray-500">Loading subjects...</p>
+          <p className="p-4 sm:p-8 text-center text-gray-500">Loading subjects...</p>
         ) : (
           <table className="w-full text-left border-collapse">
             <thead>
@@ -179,7 +181,7 @@ export default function AdminSubjects() {
 
       {/* ADD MODAL */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md">
             <h2 className="text-xl font-bold mb-4 text-gray-800">Add New Subject</h2>
             <form onSubmit={handleAddSubmit} className="space-y-4">
@@ -243,7 +245,7 @@ export default function AdminSubjects() {
 
       {/* EDIT MODAL */}
       {isEditModalOpen && editSubject && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md">
             <h2 className="text-xl font-bold mb-4 text-gray-800">Edit Subject</h2>
             <form onSubmit={handleEditSubmit} className="space-y-4">

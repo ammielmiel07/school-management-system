@@ -1,7 +1,10 @@
 "use client";
 
+import { apiFetch, notify } from '@/lib/api';
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
+import Link from "next/link";
 
 export default function SetupPassword() {
   const [newPassword, setNewPassword] = useState("");
@@ -13,13 +16,21 @@ export default function SetupPassword() {
   // Ensure they actually have a reset token before viewing this page
   useEffect(() => {
     const token = localStorage.getItem("reset_token");
-    if (!token) {
-      router.push("/login");
+    let valid = false;
+    try {
+      const encoded = token?.split('.')[1];
+      const payload = encoded ? JSON.parse(atob(encoded.replace(/-/g, '+').replace(/_/g, '/'))) : null;
+      valid = payload?.pending_reset && payload?.exp * 1000 > Date.now();
+    } catch { /* Invalid or expired setup sessions return to login. */ }
+    if (!valid) {
+      localStorage.removeItem('reset_token');
+      router.replace("/login?expired=1");
     }
   }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     setError("");
 
     if (newPassword.length < 6) {
@@ -36,7 +47,7 @@ export default function SetupPassword() {
     const token = localStorage.getItem("reset_token");
 
     try {
-      const res = await fetch("http://localhost:5000/api/auth/setup-password", {
+      const res = await apiFetch("/api/auth/setup-password", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -50,12 +61,13 @@ export default function SetupPassword() {
       if (res.ok) {
         // Clear the temporary token and force them to log in with their new password
         localStorage.removeItem("reset_token");
-        alert("Password setup complete! Please log in with your new credentials.");
+        notify("Password setup complete! Please log in with your new credentials.", 'success');
         router.push("/login");
       } else {
+        if (res.status === 401 || res.status === 403) localStorage.removeItem('reset_token');
         setError(data.error || "Failed to update password.");
       }
-    } catch (err) {
+    } catch {
       setError("Cannot connect to server.");
     } finally {
       setLoading(false);
@@ -68,7 +80,7 @@ export default function SetupPassword() {
         
         <div className="text-center mb-8">
           <div className="w-16 h-16 bg-[#5D1919] text-white rounded-full mx-auto flex items-center justify-center mb-4 font-bold">
-            LOGO
+            <Image src="/Prudencia-Logo.png" alt="Prudencia school logo" width={64} height={64} className="object-contain rounded-full bg-white" />
           </div>
           <h2 className="text-2xl font-bold text-gray-800">Welcome!</h2>
           <p className="text-sm text-gray-600 mt-2">
@@ -115,6 +127,7 @@ export default function SetupPassword() {
             {loading ? "Updating..." : "Save Password & Login"}
           </button>
         </form>
+        <Link href="/login" className="block mt-4 text-center text-sm text-[#5D1919] underline">Return to login</Link>
       </div>
     </div>
   );

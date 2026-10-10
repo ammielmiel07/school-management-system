@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch, notify } from '@/lib/api';
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
@@ -29,7 +30,7 @@ interface GradeRecord {
 }
 
 export default function AdvisoryClass() {
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+  const API_URL = "";
 
   const [isAdviser, setIsAdviser] = useState(false);
   const [section, setSection] = useState<Section | null>(null);
@@ -46,14 +47,14 @@ export default function AdvisoryClass() {
     const fetchGlobalSettings = async () => {
       const token = localStorage.getItem("token");
       try {
-        const res = await fetch(`${API_URL}/api/settings`, {
+        const res = await apiFetch(`${API_URL}/api/settings`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
         if (res.ok && data.settings) {
           setGlobalActiveTrimester(Number(data.settings.active_trisemester));
         }
-      } catch (err) {
+      } catch {
         console.error("Failed to load global setup settings context.");
       }
     };
@@ -64,7 +65,7 @@ export default function AdvisoryClass() {
     setLoading(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/api/faculty/advisory-class`, {
+      const res = await apiFetch(`${API_URL}/api/faculty/advisory-class`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -81,7 +82,7 @@ export default function AdvisoryClass() {
           setAllGrades(data.grades || []);
         }
       }
-    } catch (err) {
+    } catch {
       console.error("Failed to fetch advisory class.");
     } finally {
       setLoading(false);
@@ -130,7 +131,7 @@ export default function AdvisoryClass() {
     
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/api/faculty/advisory-class/visibility/${enrollmentId}`, {
+      const res = await apiFetch(`${API_URL}/api/faculty/advisory-class/visibility/${enrollmentId}`, {
         method: "PUT",
         headers: { 
           "Content-Type": "application/json",
@@ -153,7 +154,7 @@ export default function AdvisoryClass() {
   const handleDownloadSF1 = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/api/faculty/advisory-class/sf1`, {
+      const res = await apiFetch(`${API_URL}/api/faculty/advisory-class/sf1`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) throw new Error("Failed to generate file");
@@ -167,15 +168,15 @@ export default function AdvisoryClass() {
       document.body.appendChild(a);
       a.click();
       a.remove();
-    } catch (err) {
-      alert("Error downloading SF1. Make sure your templates are in the backend/templates folder.");
+    } catch {
+      notify("Could not download SF1. Please try again or contact the school administrator.", 'error');
     }
   };
 
   const handleDownloadSF2 = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/api/faculty/advisory-class/sf2`, {
+      const res = await apiFetch(`${API_URL}/api/faculty/advisory-class/sf2`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) throw new Error("Failed to generate file");
@@ -189,8 +190,8 @@ export default function AdvisoryClass() {
       document.body.appendChild(a);
       a.click();
       a.remove();
-    } catch (err) {
-      alert("Error downloading SF2.");
+    } catch {
+      notify("Error downloading SF2.", 'error');
     }
   };
 
@@ -203,7 +204,7 @@ export default function AdvisoryClass() {
     .sort((a, b) => a.last_name.localeCompare(b.last_name));
 
   const renderStudentTable = (studentList: Student[], title: string, isMale: boolean) => (
-    <div className="flex-1 bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+    <div className="flex-1 bg-white rounded-lg shadow-sm border border-gray-200 overflow-x-auto">
       <div className="bg-gray-50 border-b border-gray-200 p-3 flex items-center gap-2">
         <span className={isMale ? "text-blue-500" : "text-pink-500"}>
           {isMale ? "♂" : "♀"}
@@ -279,7 +280,7 @@ export default function AdvisoryClass() {
   const displaySectionName = section?.section_name || section?.name || "Unnamed Section";
 
   return (
-    <div className="p-8 max-w-[90rem] mx-auto">
+    <div className="p-4 sm:p-8 max-w-[90rem] mx-auto">
       <div className="mb-6 border-b pb-4 flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-3">
@@ -289,7 +290,7 @@ export default function AdvisoryClass() {
       </div>
 
       {loading ? (
-        <p className="p-8 text-center text-gray-500 italic">Loading advisory roster...</p>
+        <p className="p-4 sm:p-8 text-center text-gray-500 italic">Loading advisory roster...</p>
       ) : !isAdviser || !section ? (
         <div className="bg-white p-12 rounded-lg shadow-sm border text-center">
           <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -338,7 +339,7 @@ export default function AdvisoryClass() {
 
       {/* Report Card Modal */}
       {isModalOpen && selectedStudent && (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto p-8 border-t-8 border-[#5D1919]">
             
             <div className="flex justify-between items-start border-b pb-4 mb-6">
@@ -375,7 +376,7 @@ export default function AdvisoryClass() {
               <tbody>
                 {Object.entries(currentStudentGrades).length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="p-8 text-center text-gray-400 italic">No grade records found for this student.</td>
+                    <td colSpan={6} className="p-4 sm:p-8 text-center text-gray-400 italic">No grade records found for this student.</td>
                   </tr>
                 ) : (
                   Object.entries(currentStudentGrades).map(([subjectName, trimesters]) => {

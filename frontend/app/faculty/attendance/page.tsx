@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch } from '@/lib/api';
 import { useEffect, useState } from "react";
 
 // --- INTERFACES ---
@@ -17,7 +18,7 @@ interface AttendanceRecord {
 }
 
 export default function FacultyAttendance() {
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+  const API_URL = "";
 
   // --- STATE ---
   const [schoolYear, setSchoolYear] = useState<string>(""); 
@@ -29,6 +30,7 @@ export default function FacultyAttendance() {
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [monthLoaded, setMonthLoaded] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const months = [
@@ -45,7 +47,7 @@ export default function FacultyAttendance() {
     const fetchClassData = async () => {
       try {
         const token = localStorage.getItem("token");
-        const res = await fetch(`${API_URL}/api/faculty/advisory-class`, {
+        const res = await apiFetch(`${API_URL}/api/faculty/advisory-class`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         const data = await res.json();
@@ -76,22 +78,27 @@ export default function FacultyAttendance() {
   // 2. Fetch School Days & Attendance
   useEffect(() => {
     if (!schoolYear) return; 
+    const controller = new AbortController();
 
     const fetchMonthData = async () => {
       setLoading(true);
+      setMonthLoaded(false);
+      setTotalSchoolDays(null);
       setMessage(null);
 
       try {
         const token = localStorage.getItem("token");
         
         // --- A. Fetch Total School Days ---
-        const daysRes = await fetch(`${API_URL}/api/faculty/school-days?schoolYear=${schoolYear}&monthName=${selectedMonth}`, {
+        const daysRes = await apiFetch(`${API_URL}/api/faculty/school-days?schoolYear=${schoolYear}&monthName=${selectedMonth}`, {
+          signal: controller.signal,
           headers: { Authorization: `Bearer ${token}` }
         });
         
         // Safety check to prevent JSON crash
         if (!daysRes.ok) throw new Error(`School days fetch failed with status ${daysRes.status}`);
         const daysData = await daysRes.json();
+        if (controller.signal.aborted) return;
         
         if (daysData.totalDays !== "" && daysData.totalDays !== null) {
           setTotalSchoolDays(Number(daysData.totalDays));
@@ -101,13 +108,15 @@ export default function FacultyAttendance() {
 
         // --- B. Fetch Attendance ONLY if there are students ---
         if (students.length > 0) {
-          const attendanceRes = await fetch(`${API_URL}/api/faculty/attendance?schoolYear=${schoolYear}&monthName=${selectedMonth}`, {
+          const attendanceRes = await apiFetch(`${API_URL}/api/faculty/attendance?schoolYear=${schoolYear}&monthName=${selectedMonth}`, {
+            signal: controller.signal,
             headers: { Authorization: `Bearer ${token}` }
           });
           
           // Safety check to prevent JSON crash
           if (!attendanceRes.ok) throw new Error(`Attendance fetch failed with status ${attendanceRes.status}`);
           const attendanceData = await attendanceRes.json();
+          if (controller.signal.aborted) return;
           
           const attendanceMap: Record<number, AttendanceRecord> = {};
           
@@ -119,22 +128,26 @@ export default function FacultyAttendance() {
           // Override with DB data
           if (attendanceData.attendance) {
             attendanceData.attendance.forEach((record: AttendanceRecord) => {
-              attendanceMap[record.student_id] = record;
+              if (attendanceMap[record.student_id]) attendanceMap[record.student_id] = record;
             });
           }
           
           setAttendance(attendanceMap);
         }
+        setMonthLoaded(true);
 
-      } catch (err) {
-        console.error("Failed to fetch month data:", err);
-        setTotalSchoolDays(null);
+      } catch {
+        if (!controller.signal.aborted) {
+          setMessage({ type: 'error', text: 'Could not load attendance for this month. Please reload before making changes.' });
+          setTotalSchoolDays(null);
+        }
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     };
 
     fetchMonthData();
+    return () => controller.abort();
   }, [schoolYear, selectedMonth, API_URL, students]); 
 
   // ==========================================
@@ -142,10 +155,10 @@ export default function FacultyAttendance() {
   // ==========================================
   
   const handleInputChange = (studentId: number, field: "absent" | "tardy", value: string) => {
-    const numValue = value === "" ? 0 : parseInt(value);
+    if (!/^\d*$/.test(value)) return;
+    const numValue = value === "" ? 0 : Number(value);
     
-    if (numValue < 0) return;
-    if (field === "absent" && totalSchoolDays && numValue > totalSchoolDays) return;
+    if (!Number.isInteger(numValue) || numValue < 0 || (totalSchoolDays !== null && numValue > totalSchoolDays)) return;
 
     setAttendance(prev => ({
       ...prev,
@@ -157,6 +170,7 @@ export default function FacultyAttendance() {
   };
 
   const handleSave = async () => {
+    if (saving || loading || !monthLoaded || totalSchoolDays === null) return;
     setSaving(true);
     setMessage(null);
 
@@ -164,7 +178,7 @@ export default function FacultyAttendance() {
       const token = localStorage.getItem("token");
       const attendanceArray = Object.values(attendance);
 
-      const res = await fetch(`${API_URL}/api/faculty/attendance`, {
+      const res = await apiFetch(`${API_URL}/api/faculty/attendance`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -183,7 +197,7 @@ export default function FacultyAttendance() {
         const data = await res.json();
         setMessage({ type: "error", text: data.error || "Failed to save attendance." });
       }
-    } catch (err) {
+    } catch {
       setMessage({ type: "error", text: "A server error occurred." });
     } finally {
       setSaving(false);
@@ -197,7 +211,7 @@ export default function FacultyAttendance() {
   //                 RENDER
   // ==========================================
   return (
-    <div className="p-8 max-w-6xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-6xl mx-auto">
       <div className="mb-8 border-b pb-4">
         <h1 className="text-3xl font-bold text-gray-800">Monthly Attendance</h1>
         <p className="text-gray-600 mt-1">Record student absences and tardiness for School Form 2 (SF2).</p>
@@ -209,6 +223,7 @@ export default function FacultyAttendance() {
             <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Select Month</label>
             <select 
               value={selectedMonth}
+              disabled={saving}
               onChange={(e) => setSelectedMonth(e.target.value)}
               className="border border-gray-300 p-2 rounded focus:outline-none focus:border-[#5D1919] bg-white font-semibold text-gray-800"
             >
@@ -230,7 +245,7 @@ export default function FacultyAttendance() {
 
         <button 
             onClick={handleSave}
-            disabled={saving || totalSchoolDays === null || students.length === 0}
+            disabled={saving || loading || !monthLoaded || totalSchoolDays === null || students.length === 0}
             className="bg-[#5D1919] text-white font-bold py-2 px-6 rounded hover:bg-[#3e0f0f] transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
             {saving ? "Saving..." : "Save Attendance"}
@@ -243,7 +258,7 @@ export default function FacultyAttendance() {
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden relative">
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-x-auto relative">
         {/* Loading overlay for when swapping months */}
         {loading && students.length > 0 && (
           <div className="absolute inset-0 bg-white/60 backdrop-blur-sm z-10 flex items-center justify-center">
@@ -278,11 +293,11 @@ export default function FacultyAttendance() {
                   <td className="py-2 px-6 font-semibold text-gray-800">{student.name}</td>
                   <td className="py-2 px-6 text-center">
                     <input 
-                        type="number" min="0" max={totalSchoolDays || 31}
+                        type="number" min="0" max={totalSchoolDays ?? 31}
                         value={attendance[student.id]?.absent ?? ""}
                         onChange={(e) => handleInputChange(student.id, "absent", e.target.value)}
                         placeholder="0"
-                        disabled={totalSchoolDays === null || loading}
+                        disabled={totalSchoolDays === null || loading || saving || !monthLoaded}
                         className="w-16 border border-gray-300 p-1 text-center rounded focus:outline-none focus:border-[#5D1919] disabled:bg-gray-100 disabled:text-gray-400"
                     />
                   </td>
@@ -292,7 +307,7 @@ export default function FacultyAttendance() {
                         value={attendance[student.id]?.tardy ?? ""}
                         onChange={(e) => handleInputChange(student.id, "tardy", e.target.value)}
                         placeholder="0"
-                        disabled={totalSchoolDays === null || loading}
+                        disabled={totalSchoolDays === null || loading || saving || !monthLoaded}
                         className="w-16 border border-gray-300 p-1 text-center rounded focus:outline-none focus:border-[#5D1919] disabled:bg-gray-100 disabled:text-gray-400"
                     />
                   </td>
@@ -315,7 +330,7 @@ export default function FacultyAttendance() {
                         value={attendance[student.id]?.absent ?? ""}
                         onChange={(e) => handleInputChange(student.id, "absent", e.target.value)}
                         placeholder="0"
-                        disabled={totalSchoolDays === null || loading}
+                        disabled={totalSchoolDays === null || loading || saving || !monthLoaded}
                         className="w-16 border border-gray-300 p-1 text-center rounded focus:outline-none focus:border-[#5D1919] disabled:bg-gray-100 disabled:text-gray-400"
                     />
                   </td>
@@ -325,7 +340,7 @@ export default function FacultyAttendance() {
                         value={attendance[student.id]?.tardy ?? ""}
                         onChange={(e) => handleInputChange(student.id, "tardy", e.target.value)}
                         placeholder="0"
-                        disabled={totalSchoolDays === null || loading}
+                        disabled={totalSchoolDays === null || loading || saving || !monthLoaded}
                         className="w-16 border border-gray-300 p-1 text-center rounded focus:outline-none focus:border-[#5D1919] disabled:bg-gray-100 disabled:text-gray-400"
                     />
                   </td>

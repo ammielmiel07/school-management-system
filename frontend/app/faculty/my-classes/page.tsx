@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch } from '@/lib/api';
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
@@ -18,14 +19,14 @@ export default function MyClasses() {
     const fetchLoads = async () => {
       const token = localStorage.getItem("token");
       try {
-        const response = await fetch("http://localhost:5000/api/faculty/my-classes", {
+        const response = await apiFetch("/api/faculty/my-classes", {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await response.json();
         if (response.ok) {
           setLoads(data.loads);
         }
-      } catch (err) {
+      } catch {
         console.error("Failed to load classes");
       } finally {
         setLoading(false);
@@ -35,7 +36,7 @@ export default function MyClasses() {
   }, []);
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <h1 className="text-3xl font-bold text-blue-900 mb-6">My Classes</h1>
       
       {loading ? (

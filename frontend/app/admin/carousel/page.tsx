@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch } from '@/lib/api';
 import { useEffect, useState, useRef } from "react";
 import Image from "next/image";
 
@@ -18,14 +19,14 @@ export default function ManageCarousel() {
 
   const fetchImages = async () => {
     try {
-      const res = await fetch("http://localhost:5000/api/admin/carousel");
+      const res = await apiFetch("/api/admin/carousel");
       const data = await res.json();
       if (res.ok) {
         setImages(data.images);
       } else {
         setError(data.error);
       }
-    } catch (err) {
+    } catch {
       setError("Failed to fetch images.");
     } finally {
       setLoading(false);
@@ -39,6 +40,11 @@ export default function ManageCarousel() {
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      setError('Choose a PNG, JPG, or WebP image up to 5 MB.');
+      e.target.value = '';
+      return;
+    }
 
     setUploading(true);
     setError("");
@@ -48,7 +54,7 @@ export default function ManageCarousel() {
 
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/api/admin/carousel", {
+      const res = await apiFetch("/api/admin/carousel", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`
@@ -60,11 +66,11 @@ export default function ManageCarousel() {
       const data = await res.json();
       
       if (res.ok) {
-        setImages([data.image, ...images]);
+        setImages(current => [data.image, ...current]);
       } else {
         setError(data.error || "Upload failed.");
       }
-    } catch (err) {
+    } catch {
       setError("Server error during upload.");
     } finally {
       setUploading(false);
@@ -77,24 +83,24 @@ export default function ManageCarousel() {
 
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`http://localhost:5000/api/admin/carousel/${id}`, {
+      const res = await apiFetch(`/api/admin/carousel/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` }
       });
 
       if (res.ok) {
-        setImages(images.filter((img) => img.id !== id));
+        setImages(current => current.filter((img) => img.id !== id));
       } else {
         const data = await res.json();
         setError(data.error || "Failed to delete.");
       }
-    } catch (err) {
+    } catch {
       setError("Server error during deletion.");
     }
   };
 
   return (
-    <div className="p-8 max-w-6xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-6xl mx-auto">
       <div className="flex justify-between items-end mb-8 border-b pb-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-800">Manage Carousel</h1>
@@ -142,8 +148,9 @@ export default function ManageCarousel() {
           {images.map((img) => (
             <div key={img.id} className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden group">
               <div className="relative h-48 w-full bg-gray-100">
-                <img 
-                  src={`http://localhost:5000${img.image_url}`} 
+                <Image
+                  fill unoptimized sizes="(max-width: 768px) 100vw, 33vw"
+                  src={img.image_url}
                   alt="Carousel Banner" 
                   className="object-cover w-full h-full"
                 />

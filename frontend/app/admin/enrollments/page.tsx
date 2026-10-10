@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch, notify } from '@/lib/api';
 import { useEffect, useState } from "react";
 
 export default function AdminEnrollments() {
@@ -15,7 +16,7 @@ export default function AdminEnrollments() {
   useEffect(() => {
     const fetchSections = async () => {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/api/admin/sections", {
+      const res = await apiFetch("/api/admin/sections", {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -45,13 +46,13 @@ export default function AdminEnrollments() {
 
     try {
       // 1. Fetch Unassigned Learners for this Grade Level
-      const unassignedRes = await fetch(`http://localhost:5000/api/admin/enrollments/unassigned?grade_level=${gradeLevel}`, {
+      const unassignedRes = await apiFetch(`/api/admin/enrollments/unassigned?grade_level=${gradeLevel}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const unassignedData = await unassignedRes.json();
       
       // 2. Fetch Currently Enrolled Learners in this Section
-      const enrolledRes = await fetch(`http://localhost:5000/api/admin/enrollments/section/${sectionId}`, {
+      const enrolledRes = await apiFetch(`/api/admin/enrollments/section/${sectionId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const enrolledData = await enrolledRes.json();
@@ -61,7 +62,7 @@ export default function AdminEnrollments() {
         setEnrolled(enrolledData.enrolled || []);
         setActiveYear(unassignedData.activeYear);
       }
-    } catch (err) {
+    } catch {
       console.error("Failed to load section data.");
     } finally {
       setLoading(false);
@@ -74,7 +75,7 @@ export default function AdminEnrollments() {
     const token = localStorage.getItem("token");
     
     try {
-      const res = await fetch("http://localhost:5000/api/admin/enrollments", {
+      const res = await apiFetch("/api/admin/enrollments", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ learner_id: learnerId, section_id: selectedSection.id })
@@ -85,10 +86,10 @@ export default function AdminEnrollments() {
         fetchClassData(selectedSection.id, selectedSection.grade_level);
       } else {
         const data = await res.json();
-        alert(data.error);
+        notify(data.error, 'error');
       }
-    } catch (err) {
-      alert("Server error during enrollment.");
+    } catch {
+      notify("Server error during enrollment.", 'error');
     }
   };
 
@@ -97,7 +98,7 @@ export default function AdminEnrollments() {
     const token = localStorage.getItem("token");
     
     try {
-      const res = await fetch(`http://localhost:5000/api/admin/enrollments/${enrollmentId}`, {
+      const res = await apiFetch(`/api/admin/enrollments/${enrollmentId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -106,15 +107,15 @@ export default function AdminEnrollments() {
         fetchClassData(selectedSection.id, selectedSection.grade_level);
       } else {
         const data = await res.json();
-        alert(data.error);
+        notify(data.error, 'error');
       }
-    } catch (err) {
-      alert("Server error during unenrollment.");
+    } catch {
+      notify("Server error during unenrollment.", 'error');
     }
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-7xl mx-auto">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-800">Student Sectioning</h1>
         <p className="text-gray-600 mt-1">Assign admitted learners to their specific classroom sections.</p>

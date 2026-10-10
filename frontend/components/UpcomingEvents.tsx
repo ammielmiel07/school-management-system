@@ -1,5 +1,8 @@
 "use client";
 
+import { schoolDate } from '@/lib/dates';
+
+import { apiFetch } from '@/lib/api';
 import { useEffect, useState } from "react";
 
 interface SchoolEvent {
@@ -16,17 +19,17 @@ export default function UpcomingEvents() {
   useEffect(() => {
     const fetchEvents = async () => {
       try {
-        const res = await fetch("http://localhost:5000/api/admin/calendar");
+        const res = await apiFetch("/api/admin/calendar");
         const data = await res.json();
         if (res.ok && data.events) {
           const today = new Date();
           today.setHours(0, 0, 0, 0);
           const upcoming = data.events
-            .filter((ev: SchoolEvent) => new Date(ev.event_date) >= today)
+            .filter((ev: SchoolEvent) => schoolDate(ev.event_date) >= today)
             .slice(0, 4); // Only show the next 4 events
           setEvents(upcoming);
         }
-      } catch (err) {
+      } catch {
         console.error("Failed to load events.");
       } finally {
         setLoading(false);
@@ -51,7 +54,7 @@ export default function UpcomingEvents() {
         ) : (
           <ul className="divide-y divide-gray-100">
             {events.map((ev) => {
-              const dateObj = new Date(ev.event_date);
+              const dateObj = schoolDate(ev.event_date);
               return (
                 <li key={ev.id} className="p-4 hover:bg-gray-50 flex items-center gap-4 transition">
                   <div className="bg-[#5D1919]/10 text-[#5D1919] rounded px-3 py-2 text-center min-w-[65px]">

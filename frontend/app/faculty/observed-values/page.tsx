@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch } from '@/lib/api';
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 
@@ -16,7 +17,7 @@ interface ObservedValuesData {
 function ManageObservedValuesContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+  const API_URL = "";
 
   // URL Parameters
   const learnerId = searchParams.get("learnerId");
@@ -26,6 +27,7 @@ function ManageObservedValuesContent() {
   // State
   const [schoolYear, setSchoolYear] = useState<string>("");
   const [trimester, setTrimester] = useState<string>("1");
+  const [activeTrimester, setActiveTrimester] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -39,15 +41,22 @@ function ManageObservedValuesContent() {
     const fetchSettings = async () => {
       try {
         const token = localStorage.getItem("token");
-        const res = await fetch(`${API_URL}/api/settings`, {
+        const res = await apiFetch(`${API_URL}/api/settings`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         const data = await res.json();
-        if (data.success) {
+        if (res.ok && data.settings) {
           setSchoolYear(data.settings.current_school_year);
+          setActiveTrimester(String(data.settings.active_trisemester));
+          setTrimester(String(data.settings.active_trisemester));
+        } else {
+          setMessage({ type: 'error', text: data.error || 'Could not load settings. Please reload the page.' });
+          setLoading(false);
         }
       } catch (err) {
         console.error("Failed to fetch settings", err);
+        setMessage({ type: 'error', text: 'Could not load settings. Please reload the page.' });
+        setLoading(false);
       }
     };
     fetchSettings();
@@ -56,16 +65,19 @@ function ManageObservedValuesContent() {
   // Fetch Existing Values when Trimester changes
   useEffect(() => {
     if (!schoolYear || !learnerId) return;
+    const controller = new AbortController();
 
     const fetchValues = async () => {
       setLoading(true);
       try {
         const token = localStorage.getItem("token");
-        const res = await fetch(
+        const res = await apiFetch(
           `${API_URL}/api/faculty/core-values?learnerId=${learnerId}&schoolYear=${schoolYear}&trimester=${trimester}`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal }
         );
         const data = await res.json();
+        if (controller.signal.aborted) return;
+        if (!res.ok) throw new Error(data.error || 'Could not load observed values.');
         
         if (data.success && data.data) {
           setValues(data.data);
@@ -74,13 +86,14 @@ function ManageObservedValuesContent() {
           setValues({ md_1: "", md_2: "", mt_1: "", mt_2: "", mk_1: "", mb_1: "", mb_2: "" });
         }
       } catch (err) {
-        console.error("Failed to fetch values", err);
+        if (!controller.signal.aborted) setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Could not load observed values.' });
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     };
 
     fetchValues();
+    return () => controller.abort();
   }, [schoolYear, trimester, learnerId, API_URL]);
 
   const handleChange = (key: keyof ObservedValuesData, value: string) => {
@@ -88,11 +101,12 @@ function ManageObservedValuesContent() {
   };
 
   const handleSave = async () => {
+    if (saving || loading || trimester !== activeTrimester) return;
     setSaving(true);
     setMessage(null);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/api/faculty/core-values`, {
+      const res = await apiFetch(`${API_URL}/api/faculty/core-values`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -109,9 +123,10 @@ function ManageObservedValuesContent() {
       if (res.ok) {
         setMessage({ type: "success", text: "Observed values saved successfully!" });
       } else {
-        setMessage({ type: "error", text: "Failed to save observed values." });
+        const data = await res.json();
+        setMessage({ type: "error", text: data.error || "Failed to save observed values." });
       }
-    } catch (err) {
+    } catch {
       setMessage({ type: "error", text: "A server error occurred." });
     } finally {
       setSaving(false);
@@ -127,7 +142,7 @@ function ManageObservedValuesContent() {
   ];
 
   if (!learnerId) {
-    return <div className="p-8 text-center text-red-500">Error: No Learner Selected.</div>;
+    return <div className="p-4 sm:p-8 text-center text-red-500">Error: No Learner Selected.</div>;
   }
 
   return (
@@ -169,7 +184,8 @@ function ManageObservedValuesContent() {
       )}
 
       {/* Main Table */}
-      <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm mb-6 relative">
+      {activeTrimester && trimester !== activeTrimester && <p role="status" className="mb-4 p-3 rounded bg-amber-50 text-amber-800">This trimester is closed. Observed values are available for viewing.</p>}
+      <div className="border border-gray-200 rounded-lg overflow-x-auto shadow-sm mb-6 relative">
         {loading && (
           <div className="absolute inset-0 bg-white/70 flex items-center justify-center z-10">
             <span className="font-semibold text-gray-600">Loading data...</span>
@@ -191,7 +207,7 @@ function ManageObservedValuesContent() {
               <td rowSpan={2} className="p-3 border-r border-gray-200 font-bold text-center align-middle">Maka-Diyos</td>
               <td className="p-3 border-r border-gray-200 border-b border-gray-200">Expresses one's spiritual beliefs while respecting the spiritual beliefs of others</td>
               <td className="p-3 border-b border-gray-200">
-                <select value={values.md_1} onChange={(e) => handleChange("md_1", e.target.value)} className="w-full border border-gray-300 rounded p-1.5 focus:outline-none">
+                <select disabled={loading || saving || trimester !== activeTrimester} value={values.md_1} onChange={(e) => handleChange("md_1", e.target.value)} className="w-full border border-gray-300 rounded p-1.5 focus:outline-none">
                   {observationOptions.map(opt => <option key={`md1-${opt.value}`} value={opt.value}>{opt.label}</option>)}
                 </select>
               </td>
@@ -199,7 +215,7 @@ function ManageObservedValuesContent() {
             <tr className="border-b border-gray-200">
               <td className="p-3 border-r border-gray-200">Shows adherence to ethical principles by upholding truth</td>
               <td className="p-3">
-                <select value={values.md_2} onChange={(e) => handleChange("md_2", e.target.value)} className="w-full border border-gray-300 rounded p-1.5 focus:outline-none">
+                <select disabled={loading || saving || trimester !== activeTrimester} value={values.md_2} onChange={(e) => handleChange("md_2", e.target.value)} className="w-full border border-gray-300 rounded p-1.5 focus:outline-none">
                   {observationOptions.map(opt => <option key={`md2-${opt.value}`} value={opt.value}>{opt.label}</option>)}
                 </select>
               </td>
@@ -210,7 +226,7 @@ function ManageObservedValuesContent() {
               <td rowSpan={2} className="p-3 border-r border-gray-200 font-bold text-center align-middle">Makatao</td>
               <td className="p-3 border-r border-gray-200 border-b border-gray-200">Is sensitive to individual, social, and cultural differences</td>
               <td className="p-3 border-b border-gray-200">
-                <select value={values.mt_1} onChange={(e) => handleChange("mt_1", e.target.value)} className="w-full border border-gray-300 rounded p-1.5 focus:outline-none">
+                <select disabled={loading || saving || trimester !== activeTrimester} value={values.mt_1} onChange={(e) => handleChange("mt_1", e.target.value)} className="w-full border border-gray-300 rounded p-1.5 focus:outline-none">
                   {observationOptions.map(opt => <option key={`mt1-${opt.value}`} value={opt.value}>{opt.label}</option>)}
                 </select>
               </td>
@@ -218,7 +234,7 @@ function ManageObservedValuesContent() {
             <tr className="border-b border-gray-200">
               <td className="p-3 border-r border-gray-200">Demonstrates contributions toward solidarity</td>
               <td className="p-3">
-                <select value={values.mt_2} onChange={(e) => handleChange("mt_2", e.target.value)} className="w-full border border-gray-300 rounded p-1.5 focus:outline-none">
+                <select disabled={loading || saving || trimester !== activeTrimester} value={values.mt_2} onChange={(e) => handleChange("mt_2", e.target.value)} className="w-full border border-gray-300 rounded p-1.5 focus:outline-none">
                   {observationOptions.map(opt => <option key={`mt2-${opt.value}`} value={opt.value}>{opt.label}</option>)}
                 </select>
               </td>
@@ -229,7 +245,7 @@ function ManageObservedValuesContent() {
               <td className="p-3 border-r border-gray-200 font-bold text-center align-middle">Makakalikasan</td>
               <td className="p-3 border-r border-gray-200">Cares for the environment and utilizes resources wisely, judiciously, and economically</td>
               <td className="p-3">
-                <select value={values.mk_1} onChange={(e) => handleChange("mk_1", e.target.value)} className="w-full border border-gray-300 rounded p-1.5 focus:outline-none">
+                <select disabled={loading || saving || trimester !== activeTrimester} value={values.mk_1} onChange={(e) => handleChange("mk_1", e.target.value)} className="w-full border border-gray-300 rounded p-1.5 focus:outline-none">
                   {observationOptions.map(opt => <option key={`mk1-${opt.value}`} value={opt.value}>{opt.label}</option>)}
                 </select>
               </td>
@@ -240,7 +256,7 @@ function ManageObservedValuesContent() {
               <td rowSpan={2} className="p-3 border-r border-gray-200 font-bold text-center align-middle">Makabansa</td>
               <td className="p-3 border-r border-gray-200 border-b border-gray-200">Demonstrates pride in being a Filipino; exercises the rights and responsibilities of a Filipino citizen</td>
               <td className="p-3 border-b border-gray-200">
-                <select value={values.mb_1} onChange={(e) => handleChange("mb_1", e.target.value)} className="w-full border border-gray-300 rounded p-1.5 focus:outline-none">
+                <select disabled={loading || saving || trimester !== activeTrimester} value={values.mb_1} onChange={(e) => handleChange("mb_1", e.target.value)} className="w-full border border-gray-300 rounded p-1.5 focus:outline-none">
                   {observationOptions.map(opt => <option key={`mb1-${opt.value}`} value={opt.value}>{opt.label}</option>)}
                 </select>
               </td>
@@ -248,7 +264,7 @@ function ManageObservedValuesContent() {
             <tr className="border-b border-gray-200">
               <td className="p-3 border-r border-gray-200">Demonstrates appropriate behavior in carrying out activities in the school, community, and country</td>
               <td className="p-3">
-                <select value={values.mb_2} onChange={(e) => handleChange("mb_2", e.target.value)} className="w-full border border-gray-300 rounded p-1.5 focus:outline-none">
+                <select disabled={loading || saving || trimester !== activeTrimester} value={values.mb_2} onChange={(e) => handleChange("mb_2", e.target.value)} className="w-full border border-gray-300 rounded p-1.5 focus:outline-none">
                   {observationOptions.map(opt => <option key={`mb2-${opt.value}`} value={opt.value}>{opt.label}</option>)}
                 </select>
               </td>
@@ -274,7 +290,7 @@ function ManageObservedValuesContent() {
         {/* Save Button */}
         <button 
           onClick={handleSave}
-          disabled={saving}
+          disabled={saving || loading || trimester !== activeTrimester || !schoolYear}
           className="bg-[#1a56db] text-white px-6 py-2.5 rounded shadow hover:bg-blue-700 transition flex items-center font-medium disabled:opacity-50"
         >
           <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -290,7 +306,7 @@ function ManageObservedValuesContent() {
 
 export default function ManageObservedValues() {
   return (
-    <Suspense fallback={<div className="p-8 text-center text-gray-600">Loading observed values...</div>}>
+    <Suspense fallback={<div className="p-4 sm:p-8 text-center text-gray-600">Loading observed values...</div>}>
       <ManageObservedValuesContent />
     </Suspense>
   );

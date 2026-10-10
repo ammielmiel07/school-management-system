@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch, notify } from '@/lib/api';
 import { useEffect, useState } from "react";
 
 interface SectionAdviser {
@@ -25,7 +26,7 @@ export default function AdminAdvisers() {
     setLoading(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/api/admin/sections/advisers", {
+      const res = await apiFetch("/api/admin/sections/advisers", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -34,7 +35,7 @@ export default function AdminAdvisers() {
         setFacultyList(data.faculty || []);
         setActiveYear(data.active_school_year);
       }
-    } catch (err) {
+    } catch {
       console.error("Failed to fetch advisers");
     } finally {
       setLoading(false);
@@ -56,7 +57,7 @@ export default function AdminAdvisers() {
 
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/api/admin/sections/advisers", {
+      const res = await apiFetch("/api/admin/sections/advisers", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -74,12 +75,12 @@ export default function AdminAdvisers() {
         setIsAssignModalOpen(false);
         setSelectedFacultyId("");
         fetchAdvisers(); // Refresh the table
-        alert(data.message);
+        notify(data.message, 'success');
       } else {
-        alert(data.error);
+        notify(data.error, 'error');
       }
-    } catch (err) {
-      alert("Server error.");
+    } catch {
+      notify("Server error.", 'error');
     }
   };
 
@@ -89,7 +90,7 @@ export default function AdminAdvisers() {
 
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`http://localhost:5000/api/admin/sections/advisers/${sectionId}`, {
+      const res = await apiFetch(`/api/admin/sections/advisers/${sectionId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -97,27 +98,27 @@ export default function AdminAdvisers() {
       const data = await res.json();
       if (res.ok) {
         fetchAdvisers(); // Refresh the table
-        alert(data.message);
+        notify(data.message, 'success');
       } else {
-        alert(data.error);
+        notify(data.error, 'error');
       }
-    } catch (err) {
-      alert("Server error.");
+    } catch {
+      notify("Server error.", 'error');
     }
   };
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
-      <div className="flex justify-between items-center mb-8">
+    <div className="p-4 sm:p-8 max-w-5xl mx-auto">
+      <div className="flex flex-col sm:flex-row sm:justify-between items-start sm:items-center gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-800">Homeroom Advisers</h1>
           <p className="text-gray-600 text-sm mt-1">Manage class advisories for S.Y. {activeYear}</p>
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white rounded-lg shadow overflow-x-auto">
         {loading ? (
-          <p className="p-8 text-center text-gray-500">Loading advisory list...</p>
+          <p className="p-4 sm:p-8 text-center text-gray-500">Loading advisory list...</p>
         ) : (
           <table className="w-full text-left border-collapse">
             <thead>
@@ -169,7 +170,7 @@ export default function AdminAdvisers() {
 
       {/* ASSIGN MODAL */}
       {isAssignModalOpen && selectedSection && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md">
             <h2 className="text-xl font-bold text-gray-800 mb-2">Assign Adviser</h2>
             <p className="text-gray-600 text-sm mb-6">

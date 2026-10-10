@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch } from '@/lib/api';
 import { useState, useEffect } from "react";
 
 interface Subject {
@@ -19,7 +20,7 @@ export default function GradingSetup() {
     const fetchGradingSetup = async () => {
       const token = localStorage.getItem("token");
       try {
-        const response = await fetch("http://localhost:5000/api/admin/grading", {
+        const response = await apiFetch("/api/admin/grading", {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await response.json();
@@ -29,7 +30,7 @@ export default function GradingSetup() {
         } else {
           setError(data.error || "Failed to load grading setup.");
         }
-      } catch (err) {
+      } catch {
         setError("Server connection error.");
       } finally {
         setLoading(false);
@@ -39,14 +40,11 @@ export default function GradingSetup() {
     fetchGradingSetup();
   }, []);
 
-  // Helper function to format decimal (0.20) to percentage (20%)
-  const formatPercent = (decimalStr: string) => {
-    const num = parseFloat(decimalStr);
-    return `${(num * 100).toFixed(0)}%`;
-  };
+  // Weights are stored as whole percentages (for example, 20).
+  const formatPercent = (weight: string) => `${Number(weight).toFixed(0)}%`;
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <div className="max-w-5xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-800 mb-2 flex items-center gap-2">
           <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>

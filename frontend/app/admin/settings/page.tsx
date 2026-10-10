@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch } from '@/lib/api';
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -9,6 +10,7 @@ export default function SystemSettings() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [initializing, setInitializing] = useState(true);
   const router = useRouter();
 
   // Generate dynamic school years (15 years back to 5 years ahead)
@@ -32,7 +34,7 @@ export default function SystemSettings() {
       }
 
       try {
-        const response = await fetch("http://localhost:5000/api/settings", {
+        const response = await apiFetch("/api/settings", {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await response.json();
@@ -43,8 +45,10 @@ export default function SystemSettings() {
         } else {
           setError(data.error || "Could not load system settings.");
         }
-      } catch (err) {
+      } catch {
         setError("Could not load system settings.");
+      } finally {
+        setInitializing(false);
       }
     };
 
@@ -53,6 +57,7 @@ export default function SystemSettings() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading || initializing) return;
     setMessage("");
     setError("");
     setLoading(true);
@@ -60,7 +65,7 @@ export default function SystemSettings() {
     const token = localStorage.getItem("token");
 
     try {
-      const response = await fetch("http://localhost:5000/api/settings", {
+      const response = await apiFetch("/api/settings", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -79,7 +84,7 @@ export default function SystemSettings() {
       } else {
         setError(data.error || "Failed to update settings.");
       }
-    } catch (err) {
+    } catch {
       setError("Server connection error.");
     } finally {
       setLoading(false);
@@ -87,7 +92,7 @@ export default function SystemSettings() {
   };
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-4xl mx-auto">
       {/* HEADER SECTION */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-2">
@@ -104,7 +109,7 @@ export default function SystemSettings() {
         {/* Decorative Maroon Banner */}
         <div className="h-2 bg-[#3e0f0f] w-full" />
         
-        <div className="p-8">
+        <div className="p-4 sm:p-8">
           {message && (
             <div className="bg-green-50 border-l-4 border-green-500 p-4 mb-6 rounded-r flex items-center gap-2">
               <svg className="w-5 h-5 text-green-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -171,10 +176,10 @@ export default function SystemSettings() {
             <div className="pt-4 border-t border-gray-100 flex justify-end">
               <button 
                 type="submit" 
-                disabled={loading}
+                disabled={loading || initializing || !schoolYear}
                 className="bg-green-700 text-white font-bold py-3 px-8 rounded shadow-sm hover:bg-green-800 transition duration-200 disabled:opacity-50"
               >
-                {loading ? "Saving Changes..." : "Save Changes"}
+                {initializing ? 'Loading settings…' : loading ? "Saving Changes..." : "Save Changes"}
               </button>
             </div>
           </form>

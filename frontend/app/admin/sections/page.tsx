@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch, notify } from '@/lib/api';
 import { useEffect, useState } from "react";
 
 interface Section {
@@ -40,12 +41,12 @@ export default function AdminSections() {
     setLoading(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/api/admin/sections", {
+      const res = await apiFetch("/api/admin/sections", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       if (res.ok) setSections(data.sections || data);
-    } catch (err) {
+    } catch {
       console.error("Failed to fetch sections");
     } finally {
       setLoading(false);
@@ -60,7 +61,7 @@ export default function AdminSections() {
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch("http://localhost:5000/api/admin/sections", {
+      const res = await apiFetch("/api/admin/sections", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -74,10 +75,10 @@ export default function AdminSections() {
         fetchSections();
       } else {
         const data = await res.json();
-        alert(data.error || "Failed to add section");
+        notify(data.error || "Failed to add section", 'error');
       }
-    } catch (err) {
-      alert("Server error.");
+    } catch {
+      notify("Server error.", 'error');
     }
   };
 
@@ -92,7 +93,7 @@ export default function AdminSections() {
     if (!editSection) return;
 
     try {
-      const res = await fetch(`http://localhost:5000/api/admin/sections/${editSection.id}`, {
+      const res = await apiFetch(`/api/admin/sections/${editSection.id}`, {
         method: "PUT",
         headers: { 
           "Content-Type": "application/json",
@@ -105,12 +106,12 @@ export default function AdminSections() {
       if (res.ok) {
         setIsEditModalOpen(false);
         fetchSections();
-        alert(data.message || "Section updated!");
+        notify(data.message || "Section updated!", 'success');
       } else {
-        alert(data.error);
+        notify(data.error, 'error');
       }
-    } catch (err) {
-      alert("Server error.");
+    } catch {
+      notify("Server error.", 'error');
     }
   };
 
@@ -119,7 +120,7 @@ export default function AdminSections() {
     if (!window.confirm("Are you sure you want to delete this section?")) return;
 
     try {
-      const res = await fetch(`http://localhost:5000/api/admin/sections/${id}`, {
+      const res = await apiFetch(`/api/admin/sections/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       });
@@ -127,12 +128,12 @@ export default function AdminSections() {
       
       if (res.ok) {
         fetchSections();
-        alert(data.message || "Section deleted!");
+        notify(data.message || "Section deleted!", 'success');
       } else {
-        alert(data.error);
+        notify(data.error, 'error');
       }
-    } catch (err) {
-      alert("Server error.");
+    } catch {
+      notify("Server error.", 'error');
     }
   };
 
@@ -145,26 +146,26 @@ export default function AdminSections() {
 
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`http://localhost:5000/api/admin/enrollments/section/${section.id}`, {
+      const res = await apiFetch(`/api/admin/enrollments/section/${section.id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       if (res.ok) {
         setEnrolledStudents(data.enrolled || []);
       } else {
-        alert(data.error || "Failed to load students.");
+        notify(data.error || "Failed to load students.", 'error');
       }
-    } catch (err) {
+    } catch {
       console.error("Failed to fetch students");
-      alert("Server error while fetching students.");
+      notify("Server error while fetching students.", 'error');
     } finally {
       setStudentsLoading(false);
     }
   };
 
   return (
-    <div className="p-8 max-w-6xl mx-auto">
-      <div className="flex justify-between items-center mb-8">
+    <div className="p-4 sm:p-8 max-w-6xl mx-auto">
+      <div className="flex flex-col sm:flex-row sm:justify-between items-start sm:items-center gap-4 mb-8">
         <h1 className="text-3xl font-bold text-gray-800">Manage Sections</h1>
         <button 
           onClick={() => setIsAddModalOpen(true)}
@@ -174,9 +175,9 @@ export default function AdminSections() {
         </button>
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white rounded-lg shadow overflow-x-auto">
         {loading ? (
-          <p className="p-8 text-center text-gray-500">Loading sections...</p>
+          <p className="p-4 sm:p-8 text-center text-gray-500">Loading sections...</p>
         ) : (
           <table className="w-full text-left border-collapse">
             <thead>
@@ -189,7 +190,7 @@ export default function AdminSections() {
             <tbody>
               {sections.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="p-8 text-center text-gray-500 italic">No sections found. Add one to get started.</td>
+                  <td colSpan={3} className="p-4 sm:p-8 text-center text-gray-500 italic">No sections found. Add one to get started.</td>
                 </tr>
               ) : (
                 sections.map(sec => (
@@ -235,8 +236,8 @@ export default function AdminSections() {
 
       {/* VIEW STUDENTS MODAL */}
       {isViewModalOpen && viewingSection && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl flex flex-col max-h-[80vh] overflow-hidden">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl flex flex-col max-h-[80vh] overflow-x-auto">
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-white shrink-0">
               <div>
                 <h2 className="text-2xl font-bold text-gray-800">
@@ -250,7 +251,7 @@ export default function AdminSections() {
             
             <div className="p-0 overflow-y-auto flex-1 bg-gray-50">
               {studentsLoading ? (
-                <p className="p-8 text-center text-gray-500">Loading student roster...</p>
+                <p className="p-4 sm:p-8 text-center text-gray-500">Loading student roster...</p>
               ) : enrolledStudents.length === 0 ? (
                 <div className="p-12 text-center">
                   <p className="text-gray-500 text-lg">No students are currently enrolled in this section.</p>
@@ -297,7 +298,7 @@ export default function AdminSections() {
 
       {/* ADD MODAL */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md">
             <h2 className="text-xl font-bold mb-4 text-gray-800">Add New Section</h2>
             <form onSubmit={handleAddSubmit} className="space-y-4">
@@ -361,7 +362,7 @@ export default function AdminSections() {
 
       {/* EDIT MODAL */}
       {isEditModalOpen && editSection && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md">
             <h2 className="text-xl font-bold mb-4 text-gray-800">Edit Section</h2>
             <form onSubmit={handleEditSubmit} className="space-y-4">

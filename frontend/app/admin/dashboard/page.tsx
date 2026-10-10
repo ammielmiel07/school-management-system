@@ -1,6 +1,10 @@
 "use client";
 
+import { schoolDate } from '@/lib/dates';
+
+import { apiFetch } from '@/lib/api';
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 
 interface DashboardStats {
@@ -43,11 +47,11 @@ export default function AdminDashboard() {
       try {
         // Fetch stats, carousel images, and calendar events simultaneously
         const [dashRes, carouselRes, calendarRes] = await Promise.all([
-          fetch("http://localhost:5000/api/admin/dashboard", {
+          apiFetch("/api/admin/dashboard", {
             headers: { Authorization: `Bearer ${token}` }
           }),
-          fetch("http://localhost:5000/api/admin/carousel"), 
-          fetch("http://localhost:5000/api/admin/calendar") 
+          apiFetch("/api/admin/carousel"),
+          apiFetch("/api/admin/calendar")
         ]);
         
         const payload = await dashRes.json();
@@ -71,13 +75,13 @@ export default function AdminDashboard() {
           today.setHours(0, 0, 0, 0);
           
           const upcoming = calendarPayload.events
-            .filter((ev: SchoolEvent) => new Date(ev.event_date) >= today)
+            .filter((ev: SchoolEvent) => schoolDate(ev.event_date) >= today)
             .slice(0, 4);
             
           setEvents(upcoming);
         }
 
-      } catch (err) {
+      } catch {
         setError("Cannot connect to the server.");
       } finally {
         setLoading(false);
@@ -150,8 +154,9 @@ export default function AdminDashboard() {
                       key={img.id} 
                       className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${index === currentSlide ? "opacity-100 z-10" : "opacity-0 z-0"}`}
                     >
-                      <img 
-                        src={`http://localhost:5000${img.image_url}`} 
+                      <Image
+                        fill unoptimized sizes="(max-width: 768px) 100vw, 70vw"
+                        src={img.image_url}
                         alt={`Announcement ${index + 1}`} 
                         className="object-cover w-full h-full"
                       />
@@ -180,8 +185,8 @@ export default function AdminDashboard() {
               ) : (
                 <div className="relative bg-gradient-to-br from-[#7B2020] to-[#3e0f0f] w-full h-full flex items-center justify-center p-8 z-10">
                   <div className="text-white">
-                    <h1 className="text-5xl font-extrabold mb-4 drop-shadow-lg">Welcome to PDFMNHS</h1>
-                    <p className="text-2xl font-light drop-shadow">Online Management System</p>
+                    <h2 className="text-2xl sm:text-4xl font-extrabold mb-4 drop-shadow-lg">Welcome to PDFMNHS</h2>
+                    <p className="text-lg sm:text-2xl font-light drop-shadow">Online Management System</p>
                   </div>
                 </div>
               )}
@@ -207,7 +212,7 @@ export default function AdminDashboard() {
               ) : (
                 <ul className="divide-y divide-gray-100">
                   {events.map((ev) => {
-                    const dateObj = new Date(ev.event_date);
+                    const dateObj = schoolDate(ev.event_date);
                     return (
                       <li key={ev.id} className="p-4 hover:bg-gray-50 flex items-center gap-4 transition">
                         <div className="bg-[#5D1919]/10 text-[#5D1919] rounded px-3 py-2 text-center min-w-[65px]">

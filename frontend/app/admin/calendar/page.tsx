@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { schoolDate } from '@/lib/dates';
+
+import { apiFetch } from '@/lib/api';
+import { useEffect, useRef, useState } from "react";
 
 // --- INTERFACES ---
 interface SchoolEvent {
@@ -35,15 +38,18 @@ export default function ManageCalendar() {
   //         STATE: SCHOOL DAYS (SF2)
   // ==========================================
   const [daysForm, setDaysForm] = useState<{schoolYear: string, monthName: string, totalDays: number | string}>({
-    schoolYear: '2026-2027',
+    schoolYear: '',
     monthName: 'August',
     totalDays: '' 
   });
   const [daysMessage, setDaysMessage] = useState('');
+  const [daysError, setDaysError] = useState(false);
   const [daysSubmitting, setDaysSubmitting] = useState(false);
+  const [daysLoading, setDaysLoading] = useState(false);
   
   // NEW: State to hold the 12-month summary
   const [yearlySummary, setYearlySummary] = useState<MonthlySummary[]>([]);
+  const summaryRequest = useRef(0);
 
   const months = [
     "August", "September", "October", "November", "December", 
@@ -55,14 +61,14 @@ export default function ManageCalendar() {
   // ==========================================
   const fetchEvents = async () => {
     try {
-      const res = await fetch("http://localhost:5000/api/admin/calendar");
+      const res = await apiFetch("/api/admin/calendar");
       const data = await res.json();
       if (res.ok) {
         setEvents(data.events);
       } else {
         setError(data.error);
       }
-    } catch (err) {
+    } catch {
       setError("Failed to fetch calendar events.");
     } finally {
       setLoading(false);
@@ -71,6 +77,11 @@ export default function ManageCalendar() {
 
   useEffect(() => {
     fetchEvents();
+    apiFetch('/api/settings', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
+      .then(async res => {
+        const data = await res.json();
+        if (res.ok && data.settings) setDaysForm(form => ({ ...form, schoolYear: data.settings.current_school_year }));
+      }).catch(() => {});
   }, []);
 
   const handleAddEvent = async (e: React.FormEvent) => {
@@ -80,7 +91,7 @@ export default function ManageCalendar() {
 
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/api/admin/calendar", {
+      const res = await apiFetch("/api/admin/calendar", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -93,7 +104,7 @@ export default function ManageCalendar() {
       
       if (res.ok) {
         const updatedList = [...events, data.event].sort((a, b) => 
-            new Date(a.event_date).getTime() - new Date(b.event_date).getTime()
+            schoolDate(a.event_date).getTime() - schoolDate(b.event_date).getTime()
         );
         setEvents(updatedList);
         setTitle("");
@@ -102,7 +113,7 @@ export default function ManageCalendar() {
       } else {
         setError(data.error || "Failed to add event.");
       }
-    } catch (err) {
+    } catch {
       setError("Server error while adding event.");
     } finally {
       setSubmitting(false);
@@ -114,7 +125,7 @@ export default function ManageCalendar() {
 
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`http://localhost:5000/api/admin/calendar/${id}`, {
+      const res = await apiFetch(`/api/admin/calendar/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -125,7 +136,7 @@ export default function ManageCalendar() {
         const data = await res.json();
         setError(data.error || "Failed to delete.");
       }
-    } catch (err) {
+    } catch {
       setError("Server error during deletion.");
     }
   };
@@ -136,28 +147,34 @@ export default function ManageCalendar() {
 
   // NEW: Helper function to fetch the full 12 months at once
   const fetchYearlySummary = async (year: string) => {
+    const requestId = ++summaryRequest.current;
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`http://localhost:5000/api/admin/school-days?schoolYear=${year}`, {
+      const res = await apiFetch(`/api/admin/school-days?schoolYear=${year}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
-      if (res.ok) setYearlySummary(data.calendar || []);
+      if (res.ok && requestId === summaryRequest.current) setYearlySummary(data.calendar || []);
     } catch (err) {
       console.error("Failed to fetch summary", err);
     }
   };
 
   useEffect(() => {
-    if (activeTab === "schooldays") {
+    if (activeTab === "schooldays" && /^\d{4}-\d{4}$/.test(daysForm.schoolYear)) {
+      const controller = new AbortController();
       // 1. Fetch the data for the specific input box
       const fetchMonthDays = async () => {
+        setDaysLoading(true);
+        setDaysForm(prev => ({ ...prev, totalDays: '' }));
         try {
           const token = localStorage.getItem("token");
-          const res = await fetch(`http://localhost:5000/api/admin/school-days?schoolYear=${daysForm.schoolYear}&monthName=${daysForm.monthName}`, {
+          const res = await apiFetch(`/api/admin/school-days?schoolYear=${daysForm.schoolYear}&monthName=${daysForm.monthName}`, {
+            signal: controller.signal,
             headers: { Authorization: `Bearer ${token}` }
           });
           const data = await res.json();
+          if (controller.signal.aborted) return;
           
           if (res.ok && data.totalDays !== "") {
             setDaysForm(prev => ({ ...prev, totalDays: data.totalDays }));
@@ -165,29 +182,34 @@ export default function ManageCalendar() {
             setDaysForm(prev => ({ ...prev, totalDays: '' }));
           }
         } catch (err) {
-          console.error("Failed to fetch days for this month", err);
+          if (!controller.signal.aborted) console.error("Failed to fetch days for this month", err);
+        } finally {
+          if (!controller.signal.aborted) setDaysLoading(false);
         }
       };
       
       fetchMonthDays();
+      return () => controller.abort();
     }
   }, [daysForm.schoolYear, daysForm.monthName, activeTab]);
 
   // Fetch the 12-month summary whenever the school year changes or tab opens
   useEffect(() => {
-    if (activeTab === "schooldays" && daysForm.schoolYear) {
+    if (activeTab === "schooldays" && /^\d{4}-\d{4}$/.test(daysForm.schoolYear)) {
       fetchYearlySummary(daysForm.schoolYear);
     }
   }, [daysForm.schoolYear, activeTab]);
 
   const handleSaveDays = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (daysSubmitting || daysLoading) return;
     setDaysSubmitting(true);
     setDaysMessage('');
+    setDaysError(false);
 
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/api/admin/school-days", {
+      const res = await apiFetch("/api/admin/school-days", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -202,9 +224,11 @@ export default function ManageCalendar() {
         // Instantly refresh the summary table to show the newly saved value
         fetchYearlySummary(daysForm.schoolYear);
       } else {
+        setDaysError(true);
         setDaysMessage(data.error || 'Failed to update calendar.');
       }
-    } catch (error) {
+    } catch {
+      setDaysError(true);
       setDaysMessage('Server error occurred.');
     } finally {
       setDaysSubmitting(false);
@@ -218,7 +242,7 @@ export default function ManageCalendar() {
   //                 RENDER
   // ==========================================
   return (
-    <div className="p-8 max-w-6xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-6xl mx-auto">
       
       {/* Tabs Navigation */}
       <div className="flex space-x-4 mb-8 border-b">
@@ -291,7 +315,7 @@ export default function ManageCalendar() {
             ) : (
               <div className="space-y-4">
                 {events.map((ev) => {
-                  const dateObj = new Date(ev.event_date);
+                  const dateObj = schoolDate(ev.event_date);
                   const formattedDate = dateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
                   const isPast = dateObj < new Date(new Date().setHours(0,0,0,0));
 
@@ -334,7 +358,7 @@ export default function ManageCalendar() {
             </div>
             
             {daysMessage && (
-              <div className={`mb-4 p-3 rounded font-semibold ${daysMessage.includes('error') || daysMessage.includes('Failed') ? 'bg-red-50 text-red-700 border-l-4 border-red-500' : 'bg-green-50 text-green-700 border-l-4 border-green-500'}`}>
+              <div role={daysError ? 'alert' : 'status'} className={`mb-4 p-3 rounded font-semibold ${daysError ? 'bg-red-50 text-red-700 border-l-4 border-red-500' : 'bg-green-50 text-green-700 border-l-4 border-green-500'}`}>
                 {daysMessage}
               </div>
             )}
@@ -344,6 +368,8 @@ export default function ManageCalendar() {
                 <label className="block text-sm font-bold text-gray-700 mb-1">School Year</label>
                 <input 
                   type="text" 
+                  required
+                  disabled={daysSubmitting}
                   value={daysForm.schoolYear}
                   onChange={(e) => setDaysForm({...daysForm, schoolYear: e.target.value})}
                   className="w-full border border-gray-300 p-2 rounded focus:outline-none focus:border-[#5D1919]" 
@@ -354,6 +380,7 @@ export default function ManageCalendar() {
                 <label className="block text-sm font-bold text-gray-700 mb-1">Month</label>
                 <select 
                   value={daysForm.monthName}
+                  disabled={daysSubmitting}
                   onChange={(e) => setDaysForm({...daysForm, monthName: e.target.value})}
                   className="w-full border border-gray-300 p-2 rounded focus:outline-none focus:border-[#5D1919] bg-white"
                 >
@@ -365,19 +392,20 @@ export default function ManageCalendar() {
                 <label className="block text-sm font-bold text-gray-700 mb-1">Total School Days</label>
                 <input 
                   type="number" 
-                  min="1" max="31"
+                  min="0" max="31" required
+                  disabled={daysLoading || daysSubmitting}
                   value={daysForm.totalDays}
-                  onChange={(e) => setDaysForm({...daysForm, totalDays: e.target.value === '' ? '' : parseInt(e.target.value)})}
+                  onChange={(e) => setDaysForm({...daysForm, totalDays: e.target.value})}
                   className="w-full border border-gray-300 p-2 rounded focus:outline-none focus:border-[#5D1919]" 
                 />
               </div>
 
               <button 
                 type="submit" 
-                disabled={daysSubmitting}
+                disabled={daysSubmitting || daysLoading || !/^\d{4}-\d{4}$/.test(daysForm.schoolYear)}
                 className="w-full bg-[#5D1919] text-white font-bold py-2 rounded hover:bg-[#3e0f0f] transition disabled:opacity-70 mt-4"
               >
-                {daysSubmitting ? "Saving..." : "Save Calendar Setup"}
+                {daysLoading ? 'Loading school days…' : daysSubmitting ? "Saving..." : "Save Calendar Setup"}
               </button>
             </form>
           </div>

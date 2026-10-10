@@ -1,7 +1,9 @@
 "use client";
 
+import { apiFetch, notify, errorMessage } from '@/lib/api';
+import { componentStats } from '@/lib/grading';
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 
 interface Student {
@@ -73,7 +75,6 @@ function getTransmutedGrade(initial: number) {
 export default function Gradebook() {
   
   const params = useParams();
-  const router = useRouter();
   
   const [students, setStudents] = useState<Student[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -83,6 +84,8 @@ export default function Gradebook() {
   const [trimester, setTrimester] = useState(1);
   const [globalActiveTrimester, setGlobalActiveTrimester] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const [error, setError] = useState("");
 
   const [wwWeight, setWwWeight] = useState(0);
@@ -94,7 +97,7 @@ export default function Gradebook() {
     const fetchGlobalSettings = async () => {
       const token = localStorage.getItem("token");
       try {
-        const res = await fetch("http://localhost:5000/api/settings", {
+        const res = await apiFetch("/api/settings", {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
@@ -102,28 +105,37 @@ export default function Gradebook() {
           const activeTri = Number(data.settings.active_trisemester);
           setGlobalActiveTrimester(activeTri);
           setTrimester(activeTri); // Force default view to active trimester
+        } else {
+          setError(data.error || 'Could not load grading settings. Please reload the page.');
+          setLoading(false);
         }
       } catch (err) {
-        console.error("Failed to fetch global system settings.");
+        setError(errorMessage(err, 'Could not load grading settings. Please reload the page.'));
+        setLoading(false);
       }
     };
     fetchGlobalSettings();
   }, []);
 
   useEffect(() => {
+    if (globalActiveTrimester === null) return;
+    const controller = new AbortController();
     const fetchGradebookData = async () => {
       setLoading(true);
       const token = localStorage.getItem("token");
       try {
-        const studentRes = await fetch(`http://localhost:5000/api/faculty/gradebook/${params.loadId}?trimester=${trimester}`, {
+        const studentRes = await apiFetch(`/api/faculty/gradebook/${params.loadId}?trimester=${trimester}`, {
+          signal: controller.signal,
           headers: { Authorization: `Bearer ${token}` },
         });
         const studentData = await studentRes.json();
         
-        const itemsRes = await fetch(`http://localhost:5000/api/faculty/grade-items/${params.loadId}?trimester=${trimester}`, {
+        const itemsRes = await apiFetch(`/api/faculty/grade-items/${params.loadId}?trimester=${trimester}`, {
+          signal: controller.signal,
           headers: { Authorization: `Bearer ${token}` },
         });
         const itemsData = await itemsRes.json();
+        if (controller.signal.aborted) return;
 
         if (studentRes.ok && itemsRes.ok) {
           setStudents(studentData.students);
@@ -149,15 +161,30 @@ export default function Gradebook() {
           setError(studentData.error || itemsData.error || "Failed to load gradebook.");
         }
       } catch (err) {
-        setError("Server connection error.");
+        if (!controller.signal.aborted) setError(errorMessage(err, 'Unable to load the gradebook.'));
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     };
     fetchGradebookData();
-  }, [params.loadId, trimester]);
+    return () => controller.abort();
+  }, [params.loadId, trimester, globalActiveTrimester]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const preventLoss = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    const preventNavigation = (event: MouseEvent) => {
+      if ((event.target as Element).closest('a[href]') && !window.confirm('You have unsaved scores. Leave without saving?')) event.preventDefault();
+    };
+    window.addEventListener('beforeunload', preventLoss);
+    document.addEventListener('click', preventNavigation, true);
+    return () => { window.removeEventListener('beforeunload', preventLoss); document.removeEventListener('click', preventNavigation, true); };
+  }, [dirty]);
 
   const handleScoreChange = (enrollmentId: number, itemId: number, value: string) => {
+    const item = gradeItems.find(item => item.id === itemId);
+    if (value !== '' && (!/^\d+(\.\d{0,2})?$/.test(value) || !Number.isFinite(Number(value)) || Number(value) > Number(item?.max_score))) return;
+    setDirty(true);
     setLocalScores(prev => ({
       ...prev,
       [enrollmentId]: {
@@ -168,25 +195,25 @@ export default function Gradebook() {
   };
 
   const handleSave = async () => {
-    const scoresToSave: { enrollment_id: number; grade_item_id: number; score: number }[] = [];
+    if (saving || loading || trimester !== globalActiveTrimester) return;
+    const scoresToSave: { enrollment_id: number; grade_item_id: number; score: number | null }[] = [];
     
     Object.entries(localScores).forEach(([enrollmentId, items]) => {
         Object.entries(items).forEach(([itemId, scoreVal]) => {
-            if (scoreVal !== "") {
                 scoresToSave.push({
                     enrollment_id: parseInt(enrollmentId),
                     grade_item_id: parseInt(itemId),
-                    score: parseFloat(scoreVal)
+                    score: scoreVal === '' ? null : Number(scoreVal)
                 });
-            }
         });
     });
   
     if (scoresToSave.length === 0) {
-      alert("No scores to save. Please enter some grades first.");
+      notify("No scores to save. Please enter some grades first.", 'error');
       return;
     }
   
+    setSaving(true);
     try {
       const payload = {
         loadId: params.loadId,
@@ -194,7 +221,7 @@ export default function Gradebook() {
         scores: scoresToSave 
       };
   
-      const res = await fetch("http://localhost:5000/api/faculty/save-grades", {
+      const res = await apiFetch("/api/faculty/save-grades", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -204,13 +231,16 @@ export default function Gradebook() {
       });
   
       if (res.ok) {
-        alert("Grades successfully saved to database!");
+        setDirty(false);
+        notify("Grades successfully saved to database!", 'success');
       } else {
         const data = await res.json();
-        alert(data.error || "Failed to save grades.");
+        notify(data.error || "Failed to save grades.", 'error');
       }
     } catch (error) {
-      alert("Server error while saving grades.");
+      notify(errorMessage(error, 'Unable to save grades. Please try again.'), 'error');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -220,33 +250,16 @@ export default function Gradebook() {
   const ptItems = gradeItems.filter(item => item.component === 'PT');
   const exItems = gradeItems.filter(item => item.component === 'EX');
 
-  // Math Helper: Calculate Component Total, PS, and WS
+  // Component weights are stored as whole percentages.
   const getComponentStats = (enrollmentId: number, items: GradeItem[], weight: number) => {
-      let totalScore = 0;
-      let maxTotal = 0;
-      
-      items.forEach(item => {
-          maxTotal += parseFloat(item.max_score || "0");
-          const val = localScores[enrollmentId]?.[item.id];
-          if (val && !isNaN(parseFloat(val))) {
-              totalScore += parseFloat(val);
-          }
-      });
-
-      const ps = maxTotal > 0 ? (totalScore / maxTotal) * 100 : 0;
-      
-      // FIX: Multiply by the whole weight number instead of dividing it by 100 again
-      const ws = maxTotal > 0 ? ps * Number(weight) : 0; 
-
-      return { total: totalScore, maxTotal, ps, ws };
+      return componentStats(items, localScores[enrollmentId], weight);
   };
 
   // Math Helper: Max Scores for Header
   const getComponentMaxStats = (items: GradeItem[], weight: number) => {
       const maxTotal = items.reduce((acc, item) => acc + parseFloat(item.max_score || "0"), 0);
       
-      // FIX: Ensure the max possible component weight displays as a whole number (e.g., 20.00)
-      return { total: maxTotal, ps: maxTotal > 0 ? 100 : 0, ws: maxTotal > 0 ? Number(weight) * 100 : 0 };
+      return { total: maxTotal, ps: maxTotal > 0 ? 100 : 0, ws: maxTotal > 0 ? Number(weight) : 0 };
   };
   
   const wwMax = getComponentMaxStats(wwItems, wwWeight);
@@ -257,10 +270,10 @@ export default function Gradebook() {
     student.lrn.includes(searchQuery)
   );
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <div className="max-w-[1400px] mx-auto">
         
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex flex-col sm:flex-row sm:justify-between items-start sm:items-center gap-4 mb-6">
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
             Encode Grades 
@@ -301,11 +314,16 @@ export default function Gradebook() {
         </div>
 
         <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {[1, 2, 3].map((tri) => (
               <button
                 key={tri}
-                onClick={() => setTrimester(tri)}
+                disabled={saving}
+                onClick={() => {
+                  if (dirty && !window.confirm('You have unsaved scores. Switch trimester without saving?')) return;
+                  setDirty(false);
+                  setTrimester(tri);
+                }}
                 className={`px-6 py-2 border rounded font-bold shadow-sm transition-colors text-sm flex items-center gap-1.5 ${
                   trimester === tri 
                     ? "bg-[#5D1919] text-white border-[#5D1919]" 
@@ -339,7 +357,8 @@ export default function Gradebook() {
           </div>
         )}
 
-        <div className="bg-white border border-gray-300 rounded shadow-sm overflow-hidden overflow-x-auto">
+        <p className="md:hidden text-sm text-gray-600 mb-2">Scroll horizontally to view all grading columns.</p>
+        <div className="bg-white border border-gray-300 rounded shadow-sm overflow-x-auto">
           {loading ? (
              <p className="p-6 text-gray-500 italic text-center">Loading interactive gradebook...</p>
           ) : (
@@ -407,7 +426,8 @@ export default function Gradebook() {
                   const exStats = getComponentStats(student.enrollment_id, exItems, exWeight);
                   
                   const liveInitial = wwStats.ws + ptStats.ws + exStats.ws;
-                  const liveTransmuted = liveInitial > 0 ? getTransmutedGrade(liveInitial) : null;
+                  const hasScores = Object.values(localScores[student.enrollment_id] || {}).some(value => value !== '');
+                  const liveTransmuted = hasScores ? getTransmutedGrade(liveInitial) : null;
 
                   return (
                   <tr key={student.enrollment_id} className="border-b border-gray-200 hover:bg-gray-50 text-center text-[13px]">
@@ -421,12 +441,15 @@ export default function Gradebook() {
                        <td key={item.id} className="p-1 border-r border-gray-200">
                             <input 
                               type="number" 
-                              step="1"
-                              disabled={!isEditable}
+                              step="0.01"
+                              min="0"
+                              max={Number(item.max_score)}
+                              aria-label={`${student.last_name}, ${student.first_name}: ${item.item_name}`}
+                              disabled={!isEditable || saving}
                               value={localScores[student.enrollment_id]?.[item.id] || ""}
                               onChange={(e) => {
-                                // Strips decimal symbols and non-digits to force whole numbers
-                                const val = e.target.value.replace(/\D/g, '');
+                                // Score bounds are checked before updating the local value.
+                                const val = e.target.value;
                                 handleScoreChange(student.enrollment_id, item.id, val);
                               }}
                               className="mx-auto w-16 text-center border border-gray-300 rounded p-1 focus:outline-none focus:border-blue-500 text-gray-800 disabled:bg-gray-100                    disabled:cursor-not-allowed [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
@@ -442,11 +465,14 @@ export default function Gradebook() {
                        <td key={item.id} className="p-1 border-r border-gray-200">
                          <input 
                            type="number" 
-                           step="1"
-                           disabled={!isEditable}
+                           step="0.01"
+                              min="0"
+                              max={Number(item.max_score)}
+                              aria-label={`${student.last_name}, ${student.first_name}: ${item.item_name}`}
+                           disabled={!isEditable || saving}
                            value={localScores[student.enrollment_id]?.[item.id] || ""}
                            onChange={(e) => {
-                             const val = e.target.value.replace(/\D/g, '');
+                             const val = e.target.value;
                              handleScoreChange(student.enrollment_id, item.id, val);
                            }}
                            className="mx-auto w-16 text-center border border-gray-300 rounded p-1 focus:outline-none focus:border-blue-500 text-gray-800 disabled:bg-gray-100 disabled:cursor-not-allowed                     [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
@@ -462,11 +488,14 @@ export default function Gradebook() {
                        <td key={item.id} className="p-1 border-r border-gray-200">
                          <input 
                            type="number" 
-                           step="1"
-                           disabled={!isEditable}
+                           step="0.01"
+                              min="0"
+                              max={Number(item.max_score)}
+                              aria-label={`${student.last_name}, ${student.first_name}: ${item.item_name}`}
+                           disabled={!isEditable || saving}
                            value={localScores[student.enrollment_id]?.[item.id] || ""}
                            onChange={(e) => {
-                             const val = e.target.value.replace(/\D/g, '');
+                             const val = e.target.value;
                              handleScoreChange(student.enrollment_id, item.id, val);
                            }}
                            className="mx-auto w-16 text-center border border-gray-300 rounded p-1 focus:outline-none focus:border-blue-500 text-gray-800 disabled:bg-gray-100 disabled:cursor-not-allowed                     [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
@@ -478,7 +507,7 @@ export default function Gradebook() {
                     <td className="p-2 border-r border-gray-200 text-gray-600 bg-gray-50 font-semibold">{exStats.ws.toFixed(2)}</td>
 
                     <td className="p-2 text-center bg-gray-50 border-r border-gray-200 font-bold text-gray-700">
-                      {liveInitial > 0 ? liveInitial.toFixed(2) : "-"}
+                      {hasScores ? liveInitial.toFixed(2) : "-"}
                     </td>
                     <td className="p-2 text-center bg-gray-50 font-bold text-[#147a3e] text-base">
                       {liveTransmuted || "-"}
@@ -493,10 +522,11 @@ export default function Gradebook() {
             <div className="p-4 bg-white border-t border-gray-200 flex justify-center">
               <button 
                 onClick={handleSave}
-                className="bg-green-700 text-white font-bold py-2 px-8 rounded shadow hover:bg-green-800 transition flex items-center gap-2"
+                disabled={saving || loading || !dirty}
+                className="bg-green-700 text-white font-bold py-2 px-8 rounded shadow hover:bg-green-800 disabled:opacity-60 transition flex items-center gap-2"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
-                Save Scores
+                {saving ? 'Saving…' : dirty ? 'Save Scores (unsaved changes)' : 'Save Scores'}
               </button>
             </div>
           )}

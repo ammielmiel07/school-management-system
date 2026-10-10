@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch } from '@/lib/api';
 import { useEffect, useState } from "react";
 import AnnouncementCarousel from "@/components/AnnouncementCarousel";
 import UpcomingEvents from "@/components/UpcomingEvents";
@@ -12,14 +13,14 @@ export default function ParentDashboard() {
     const fetchProfile = async () => {
       const token = localStorage.getItem("token");
       try {
-        const res = await fetch("http://localhost:5000/api/parent/profile", {
+        const res = await apiFetch("/api/parent/profile", {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
         if (res.ok && data.parent) {
           setParentName(`${data.parent.first_name} ${data.parent.last_name}`);
         }
-      } catch (err) {
+      } catch {
         console.error("Failed to fetch profile info.");
       }
     };
@@ -28,7 +29,7 @@ export default function ParentDashboard() {
   }, []);
 
   return (
-    <div className="p-8 max-w-7xl mx-auto flex flex-col gap-6">
+    <div className="p-4 sm:p-8 max-w-7xl mx-auto flex flex-col gap-6">
       
       {/* Welcome Banner */}
       <div className="bg-[#5D1919] text-white rounded-lg p-6 shadow-sm">
